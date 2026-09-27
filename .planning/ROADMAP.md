@@ -28,11 +28,13 @@ Decimal phases appear between their surrounding integers in numeric order.
   1. Prism mock servers for TMF642, TMF628, TMF621, and CAMARA APIs return valid HTTP responses matching their OpenAPI spec schemas
   2. NextGCore is running on OpenShift with NWDAF endpoints responding to TS 29.520 analytics requests
   3. Backend routing ConfigMap allows switching any MCP tool between Prism mock and live backend without redeploying services
-**Plans**: TBD
+**Plans:** 4 plans
 
 Plans:
-- [ ] 01-01: TBD
-- [ ] 01-02: TBD
+- [ ] 01-01-PLAN.md -- Vendor OpenAPI specs, create Prism Dockerfile and validation scripts
+- [ ] 01-02-PLAN.md -- NextGCore NWDAF local validation with Podman (go/no-go decision)
+- [ ] 01-03-PLAN.md -- OpenShift cluster setup and Prism mock deployment
+- [ ] 01-04-PLAN.md -- NextGCore/NWDAF deployment, ConfigMap routing, final verification
 
 ### Phase 2: MCP Tooling Foundation
 **Goal**: Reusable conversion tooling and existing device-layer toolkit are operational on OpenShift, ready for domain tool building
@@ -97,7 +99,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4. Phase 5 runs in parallel.
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Backend Infrastructure | 0/2 | Not started | - |
+| 1. Backend Infrastructure | 0/4 | Planning complete | - |
 | 2. MCP Tooling Foundation | 0/2 | Not started | - |
 | 3. MCP Domain Servers and Gateway | 0/3 | Not started | - |
 | 4. SDG Pipeline and Dataset Production | 0/3 | Not started | - |
