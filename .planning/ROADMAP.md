@@ -7,6 +7,7 @@ This project builds the infrastructure and pipeline to produce telecom-specific 
 ## Phases
 
 **Phase Numbering:**
+
 - Integer phases (1, 2, 3): Planned milestone work
 - Decimal phases (2.1, 2.2): Urgent insertions (marked with INSERTED)
 
@@ -21,75 +22,102 @@ Decimal phases appear between their surrounding integers in numeric order.
 ## Phase Details
 
 ### Phase 1: Backend Infrastructure
+
 **Goal**: Mock and live backends are deployed on OpenShift and return valid API responses for all fault-prediction APIs
 **Depends on**: Nothing (first phase)
 **Requirements**: BACK-01, BACK-02, BACK-03
 **Success Criteria** (what must be TRUE):
+
   1. Prism mock servers for TMF642, TMF628, TMF621, and CAMARA APIs return valid HTTP responses matching their OpenAPI spec schemas
   2. NextGCore is running on OpenShift with NWDAF endpoints responding to TS 29.520 analytics requests
   3. Backend routing ConfigMap allows switching any MCP tool between Prism mock and live backend without redeploying services
+
 **Plans:** 4 plans
 
 Plans:
+**Wave 1**
+
 - [ ] 01-01-PLAN.md -- Vendor OpenAPI specs, create Prism Dockerfile and validation scripts
 - [ ] 01-02-PLAN.md -- NextGCore NWDAF local validation with Podman (go/no-go decision)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 01-03-PLAN.md -- OpenShift cluster setup and Prism mock deployment
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 01-04-PLAN.md -- NextGCore/NWDAF deployment, ConfigMap routing, final verification
 
 ### Phase 2: MCP Tooling Foundation
+
 **Goal**: Reusable conversion tooling and existing device-layer toolkit are operational on OpenShift, ready for domain tool building
 **Depends on**: Phase 1
 **Requirements**: MCP-06, MCP-07
 **Success Criteria** (what must be TRUE):
+
   1. OpenAPI-to-MCP conversion tooling can generate a curated FastMCP server from a TMF or CAMARA OpenAPI spec, selecting specific operations rather than exposing the entire API surface
   2. MCP-Telecom's 60+ device-layer tools are deployed on OpenShift and individually callable via MCP protocol
+
 **Plans**: TBD
 
 Plans:
+
 - [ ] 02-01: TBD
 - [ ] 02-02: TBD
 
 ### Phase 3: MCP Domain Servers and Gateway
+
 **Goal**: All 20 fault-prediction MCP tools are built, tested against backends, and composable through a unified gateway endpoint
 **Depends on**: Phase 2
 **Requirements**: MCP-01, MCP-02, MCP-03, MCP-04, MCP-05, MCP-08
 **Success Criteria** (what must be TRUE):
+
   1. 20 curated MCP tools across TMF642 (6), TMF628 (5), TMF621 (4), NWDAF (3), and CAMARA (2) are individually callable and return valid responses from their backends
   2. Kuadrant MCP Gateway on OpenShift composes all domain MCP servers and MCP-Telecom with tool namespacing, presenting a single endpoint
   3. An MCP client calling any tool through the gateway receives the correct backend response -- Prism mock or live NextGCore depending on routing configuration
+
 **Plans**: TBD
 
 Plans:
+
 - [ ] 03-01: TBD
 - [ ] 03-02: TBD
 - [ ] 03-03: TBD
 
 ### Phase 4: SDG Pipeline and Dataset Production
+
 **Goal**: Execution-verified, quality-filtered training dataset is produced and delivered to Farbod's team for OSFT training
 **Depends on**: Phase 3
 **Requirements**: SDG-01, SDG-02, SDG-03, SDG-04, SDG-05
 **Success Criteria** (what must be TRUE):
+
   1. sdg_hub MCP distillation flow generates tool-calling training examples from MCP server schemas with three-stage verification (format, execution, semantic) against live backends
   2. Training examples follow curriculum ordering (single-tool, parallel, sequential, multi-turn, closed-loop) and are output in both single-turn and multi-turn trajectory formats
   3. 5,000-10,000 high-quality verified examples are produced from an initial 8,500-14,000 raw generation run, with quality metrics and coverage statistics
   4. Filtered dataset is delivered to Farbod's team in their required OSFT-compatible JSONL format, validated by the training team
+
 **Plans**: TBD
 
 Plans:
+
 - [ ] 04-01: TBD
 - [ ] 04-02: TBD
 - [ ] 04-03: TBD
 
 ### Phase 5: Industry Gaps Document
+
 **Goal**: Industry gaps document identifies critical missing infrastructure for deploying telecom AI agents at scale
 **Depends on**: Nothing (parallel track)
 **Requirements**: GAPS-01, GAPS-02
 **Success Criteria** (what must be TRUE):
+
   1. Document covers three gap areas: MCP conformance testing framework, standard telco API simulators, and agent deployment reference architecture on OpenShift
   2. Document identifies specific frameworks, standards, and Red Hat tools/platforms that help operators deploy AI agents in production
+
 **Plans**: TBD
 
 Plans:
+
 - [ ] 05-01: TBD
 
 ## Progress

@@ -734,27 +734,31 @@ oc auth can-i create securitycontextconstraints  # Should return "yes" for clust
 | A5 | docker-compose v5.0.2 binary works correctly with Podman socket for NextGCore's compose files | Podman Compose pitfall | If networking breaks due to Podman/Docker bridge differences, may need to install podman-compose or use `podman play kube` instead |
 | A6 | Prism health check works by hitting any GET endpoint defined in the spec | Pitfall 4 | If some GET endpoints require query parameters or return 4xx without them, need to find a better health check path |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **NextGCore k8s/ directory contents**
    - What we know: The directory exists at the repo root
    - What's unclear: Whether it contains complete Kubernetes manifests, partial templates, or is empty/stale
    - Recommendation: Inspect during execution; if unusable, generate manifests from docker-compose.yml using `kompose convert` or write manually
+   - **RESOLVED:** Delegated to 01-02 Task 1 (local Podman investigation clones the repo and inspects `k8s/` directly) and, if NWDAF is a go, 01-04 (OpenShift porting task reads the actual directory contents before writing manifests). Not a planning-time blocker — resolved empirically at execution time.
 
 2. **NWDAF analytics endpoint behavior after nextgsim registration**
    - What we know: nextgsim does UE registration + PDU session; NWDAF is listed as one of the 22 NFs
    - What's unclear: Whether NWDAF returns actual analytics (LOAD_LEVEL_INFORMATION, ABNORMAL_BEHAVIOUR) after UE registration, or whether it requires additional configuration/data ingestion
    - Recommendation: This is the core validation step (D-12). Must be tested empirically with Podman before committing to OpenShift porting
+   - **RESOLVED:** Delegated to 01-02 Task 1's empirical Podman test, which produces the go/no-go decision in `01-02-SUMMARY.md` that 01-04 branches on (NextGCore deployment vs. Prism fallback per D-10).
 
 3. **CAMARA spec single-instance serving**
    - What we know: CAMARA DeviceLocation has two separate spec files (verification + retrieval)
    - What's unclear: Whether Prism can mock from two spec files in a single instance
    - Recommendation: Test locally with `prism mock --dynamic location-verification.yaml`. If both specs share the same base path, consider merging them. If not, deploy two Prism instances or pick the primary spec.
+   - **RESOLVED:** Delegated to 01-01 (spec vendoring) and 01-03 (Prism Deployment authoring) — the executor inspects both vendored specs at execution time and picks single-vs-dual-instance serving per this recommendation, captured in those tasks' `read_first`/`action` fields.
 
 4. **Prism readiness probe path for each API**
    - What we know: Prism has no `/health` endpoint; must use a spec-defined path
    - What's unclear: Whether TMF628 and CAMARA specs have GET endpoints that return 200 without mandatory query parameters
    - Recommendation: Inspect each vendored spec at execution time; find a simple GET path per spec for probes
+   - **RESOLVED:** Delegated to 01-03 — each Prism Deployment's readiness/liveness probe path is determined by inspecting its vendored spec when authoring that Deployment's manifest, per this recommendation.
 
 ## Environment Availability
 

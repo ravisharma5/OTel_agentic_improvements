@@ -1,8 +1,8 @@
 ---
 phase: 1
 slug: backend-infrastructure
-status: draft
-nyquist_compliant: false
+status: planned
+nyquist_compliant: true
 wave_0_complete: false
 created: 2026-09-27
 ---
@@ -70,11 +70,11 @@ created: 2026-09-27
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references
-- [ ] No watch-mode flags
-- [ ] Feedback latency < 30s
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies — confirmed by gsd-plan-checker Dimension 8 pass across 01-01..01-04
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify — confirmed by gsd-plan-checker
+- [x] Wave 0 covers all MISSING references — 01-01 creates validate-mocks.sh, verify-routing.sh, check-nwdaf.sh before any plan that depends on them
+- [x] No watch-mode flags
+- [ ] Feedback latency < 30s — to be confirmed once scripts run against real deployed backends (Wave 0/1 execution)
+- [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** pending — planning-time checks pass; final approval waits on Wave 0 script execution confirming actual runtime and `wave_0_complete: true`.
