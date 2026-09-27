@@ -164,6 +164,26 @@
 
 ---
 
+## Post-Discussion Correction: Prism vs. Microcks
+
+After the discussion concluded and CONTEXT.md was written, a check of `.planning/research/STACK.md` (produced during roadmap creation, not consulted during this discussion) revealed an existing "Why Prism over Microcks" analysis: Microcks requires MongoDB + Keycloak + the Microcks server, which is unnecessary operational weight for lightweight, pipeline-internal mocks. This directly contradicted the mid-discussion decision to switch to Microcks (made on the basis of its native OpenShift Operator alone, without this research loaded).
+
+Presented to the user as a follow-up question:
+
+| Option | Description | Selected |
+|--------|-------------|----------|
+| Revert to Prism | Go with the original research recommendation | ✓ |
+| Keep Microcks anyway | Accept the operational overhead for the OpenShift Operator fit | |
+| Let me look at the trade-off myself first | Show full STACK.md context before deciding | |
+
+**User's choice:** Revert to Prism.
+
+**Resulting changes to CONTEXT.md:** D-04 through D-09 rewritten to specify Prism (one instance per API spec, per `ARCHITECTURE.md`'s layout) instead of Microcks. D-10 updated to reference Prism (not Microcks) as the NWDAF mocking fallback. Canonical refs expanded to include all of `.planning/research/*.md`, which had been missed by the initial codebase scout.
+
+**Lesson:** `.planning/research/*.md` should be checked during `load_prior_context`/`scout_codebase` for phases that follow a `/gsd:new-project` roadmap creation — it contains resolved technical trade-offs that should not be re-litigated blind during discussion.
+
+---
+
 ## Claude's Discretion
 
 - Exact timebox duration for NextGCore/NWDAF validation before falling back to mocking it.
