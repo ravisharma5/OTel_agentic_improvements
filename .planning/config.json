@@ -41,5 +41,14 @@
   "features": {},
   "mode": "yolo",
   "depth": "standard",
-  "granularity": "standard"
+  "granularity": "standard",
+  "review": {
+    "default_reviewers": [
+      "gemini",
+      "cursor"
+    ],
+    "models": {
+      "gemini": "gemini-3.1-pro-preview"
+    }
+  }
 }
