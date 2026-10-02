@@ -73,6 +73,7 @@ None yet.
 - OSFT data format specification needed from Farbod's team in week 1 (Pitfall #5)
 - NextGCore NWDAF may be non-functional -- needs hands-on validation in Phase 1 (Pitfall #6)
 - TMF628 is Swagger 2.0 only -- FastMCP from_openapi() needs OAS 3.0 conversion path (Pitfall #4)
+- Prism mock responses confirmed unrealistic in practice (Pitfall #3) -- observed during Phase 1 execution: deployed NWDAF mock returned Lorem Ipsum `nsiId` values (e.g. "sunt sit", "dolor pariatur laboris proident") and nonsensical negative `loadLevelInformation` values (e.g. -60465668) for TS 29.520 LOAD_LEVEL_INFORMATION analytics. Confirmed this affects all Prism-backed mocks (TMF642, TMF628, TMF621, CAMARA verify, CAMARA retrieve), not just NWDAF. Scoped intentionally as Phase 4's job (enrich vendored OpenAPI specs with realistic `example` values from TM Forum user guides before SDG generation) per existing PITFALLS.md mitigation and CONTEXT.md D-08 -- not addressed in Phase 1, which only requires schema-valid (not realistic) mock responses. Phase 4 planner should treat this as a known, evidenced requirement rather than a hypothetical risk.
 
 ## Deferred Items
 
