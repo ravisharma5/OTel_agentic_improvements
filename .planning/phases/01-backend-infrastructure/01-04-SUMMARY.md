@@ -2,194 +2,215 @@
 phase: 01-backend-infrastructure
 plan: 04
 subsystem: nwdaf-routing
-tags: [openshift, nwdaf, prism, configmap, routing, backend-infrastructure]
+tags: [openshift, nwdaf, nextgcore, configmap, routing, backend-infrastructure, buildconfig, h2c]
 dependency_graph:
   requires:
     - 01-02
     - 01-03
   provides:
-    - "Prism NWDAF mock pod running on OpenShift in otel25-backends namespace"
-    - "ConfigMap backend-routing with 6 per-API base URLs"
+    - "Real NextGCore NWDAF (Path A) running on OpenShift in otel25-backends namespace"
+    - "Full 5G core stack: MongoDB, NRF, AUSF, UDM, UDR, AMF, SMF, UPF, NWDAF (9 pods)"
+    - "In-cluster native amd64 build via OpenShift BuildConfig (Docker strategy)"
+    - "ConfigMap backend-routing with 6 per-API base URLs (NWDAF at port 7777)"
     - "Documented mounted-file consumer contract for no-redeploy switching"
     - "D-16 switching contract verified"
   affects: [02-xx, 03-xx]
 tech_stack:
-  added: [nwdaf-bundled-spec]
-  patterns: [configmap-mounted-file-routing, prism-nwdaf-fallback]
+  added: [nextgcore-runtime, openshift-buildconfig, nwdaf-bundled-spec]
+  patterns: [configmap-mounted-file-routing, in-cluster-native-build, split-nf-topology, h2c-sbi]
 key_files:
   created:
     - backends/openshift/nextgcore/deployment-nextgcore.yaml
     - backends/openshift/nextgcore/service-nwdaf.yaml
+    - backends/openshift/nextgcore/Dockerfile.runtime
+    - backends/openshift/nextgcore/configmap-nextgcore.yaml
+    - backends/openshift/nextgcore/scc-nextgcore-upf.yaml
     - backends/openshift/configmap-backend-routing.yaml
     - backends/specs/nwdaf_analyticsinfo_bundled.yaml
   modified:
     - backends/scripts/check-nwdaf.sh
     - backends/scripts/verify-routing.sh
 decisions:
-  - "Path B (Prism NWDAF fallback) taken: ARM64-to-amd64 cross-compilation blocked NextGCore deployment"
-  - "Bundled NWDAF spec created: original spec had unresolvable cross-file 3GPP references"
+  - "Path A (real NextGCore) deployed: cross-compilation solved via OpenShift BuildConfig native amd64 build"
+  - "Unified runtime image: single nextgcore-runtime image with all NF binaries (avoids 8 separate BuildConfigs)"
+  - "NEXTGCORE_SBI_PROFILE=dev required for cleartext HTTP/2 h2c (no TLS certificates in dev cluster)"
+  - "NWDAF CLI args override config file: --sbi-port 7777 and --nrf-uri needed since NWDAF defaults differ from config"
+  - "AMF binds SBI to 127.0.0.1 in dev mode: exec probe replaces tcpSocket probe for readiness"
   - "ConfigMap uses mounted-file-only consumer contract (not env vars) for no-redeploy compliance"
 metrics:
-  duration: 25 minutes
-  completed: "2026-10-02T16:08:00Z"
+  duration: 45 minutes
+  completed: "2026-10-02T19:57:00Z"
 ---
 
 # Phase 1 Plan 04: NWDAF Backend and Routing ConfigMap Summary
 
-Prism NWDAF fallback deployed with bundled AnalyticsInfo spec returning 7/7 TS 29.520 analytics fields; ConfigMap backend-routing created with 6 per-API URLs and verified D-16 switching contract.
+Real NextGCore NWDAF deployed on OpenShift via in-cluster BuildConfig (solving ARM64-to-amd64 cross-compilation), full 5G core stack with 9 pods all Running, NWDAF responding to NF_LOAD analytics on HTTP/2 h2c port 7777; ConfigMap backend-routing updated with 6 per-API URLs verified for live switching.
 
 ## Performance
 
-- **Duration:** 25 min
-- **Started:** 2026-10-02T15:43:48Z
-- **Completed:** 2026-10-02T16:08:00Z
-- **Tasks:** 2 auto + 1 checkpoint (pending)
-- **Files created:** 4
+- **Duration:** ~45 min (across two agent sessions; includes ~18 min builder compilation, ~1 min runtime build)
+- **Completed:** 2026-10-02T19:57:00Z
+- **Tasks:** 2 auto + 1 checkpoint (approved)
+- **Files created:** 7
 - **Files modified:** 2
 
 ## Accomplishments
 
-- Verified OpenShift cluster access (admin user, cluster-admin, same cluster as Plan 03)
-- Attempted NextGCore Path A (GO decision from Plan 02): blocked by ARM64-to-amd64 cross-compilation issue
-- Deployed Prism NWDAF mock (Path B) as accepted alternate completion of BACK-02 per D-10
-- Created self-contained bundled NWDAF AnalyticsInfo spec (inlines all 3GPP cross-references)
-- Prism NWDAF returns HTTP 200 with all 7 TS 29.520 analytics fields: nfLoadLevelInfos, sliceLoadLevelInfos, nsiLoadLevelInfos, nwPerfs, svcExps, expiry, timeStampGen
-- Created ConfigMap backend-routing with 6 per-API base URLs (TMF642, TMF628, TMF621, CAMARA, CAMARA_RETRIEVAL, NWDAF)
-- ConfigMap includes documented mounted-file-only consumer contract for no-redeploy compliance (D-15, BACK-03)
-- D-16 switching test verified: patching ConfigMap URL value changes routing without redeployment
-- All 6 backend pods Running (5 Prism mocks from Plan 03 + 1 Prism NWDAF)
-- All 6 backends respond HTTP 200 from within cluster
-- check-nwdaf.sh passes with 7/7 analytics field assertions
-- Updated check-nwdaf.sh: NF_LOAD event type, Prism /analytics path, dynamic=true header
-- Updated verify-routing.sh: NWDAF path corrected for Prism
+- Built NextGCore natively on amd64 cluster via OpenShift BuildConfig (Docker strategy), solving ARM64 cross-compilation
+- Two-stage build chain: `nextgcore-builder` (Rust compilation, 18 min) then `nextgcore-runtime` (runtime deps + binaries, 1 min)
+- Deployed full 5G core stack: MongoDB, NRF, AUSF, UDM, UDR, AMF, SMF, UPF, NWDAF (9 pods, all 1/1 Running)
+- NWDAF registered with NRF successfully, NRF NFStatusSubscribe active
+- NWDAF analytics endpoint responds to `GET /nnwdaf-analyticsinfo/v1/analytics?event-id=NF_LOAD` with HTTP 204 (correct: no UE load data on fresh deployment)
+- HTTP/2 h2c protocol confirmed via curl `--http2-prior-knowledge`
+- Custom SCC for UPF: privileged + NET_ADMIN + SYS_ADMIN + /dev/net/tun
+- ConfigMap backend-routing updated: NWDAF_BASE_URL now points to port 7777
+- Scripts updated for NextGCore paths and HTTP/2
+- User verified all 4 verification steps independently
 
-## BACK-02 Status: Accepted Alternate Completion (D-10)
+## BACK-02 Status: Fully Satisfied (Path A)
 
-**The Prism NWDAF fallback was taken per D-10.** This is an accepted alternate completion of BACK-02, not a full satisfaction of REQUIREMENTS.md's "Deploy NextGCore on OpenShift" text.
+**The real NextGCore NWDAF is deployed and responding.** This fully satisfies BACK-02 ("Deploy NextGCore on OpenShift with working NWDAF endpoints for execution-verified analytics tool calls").
 
-**Why Path A (NextGCore) was not deployed:**
-1. Plan 02's GO decision determined that NextGCore NWDAF returns real NF_LOAD analytics data.
-2. All NextGCore images were built on ARM64 (Apple Silicon macOS) during Plan 02 validation.
-3. The OpenShift cluster runs amd64 (AWS EC2 x86_64 nodes).
-4. Cross-compilation attempt failed: the NextGCore Dockerfile.builder's cargo config only handles amd64-to-arm64 cross-compilation (for CI on x86_64 building ARM64 images). The reverse direction (arm64-to-amd64) is not configured -- the x86_64 cross-linker is installed but the cargo target config entry for `[target.x86_64-unknown-linux-gnu]` with `linker = "x86_64-linux-gnu-gcc"` is missing.
-5. QEMU emulation build would take 1+ hour (Rust compilation under emulation).
+**How the cross-compilation blocker was solved:**
+1. Plan 02 GO decision confirmed NextGCore NWDAF returns real NF_LOAD analytics data
+2. All Plan 02 images were ARM64 (built on Apple Silicon macOS); cluster is amd64
+3. Local cross-compilation failed: Dockerfile.builder cargo config missing x86_64 linker entry
+4. Solution: OpenShift BuildConfig with Docker strategy builds natively on cluster amd64 nodes
+5. Two-stage build: `nextgcore-builder` (all Rust binaries, ~18 min) then `nextgcore-runtime` (single image with all NF binaries + runtime deps)
+6. All 9 NFs deployed from the unified runtime image, each Deployment overriding the command to select its specific binary
 
-**Future Path A remediation options:**
-- Fix the Dockerfile.builder cargo config for arm64-to-amd64 direction (add the linker entry)
-- Use an OpenShift BuildConfig with Docker strategy to build on cluster nodes (amd64 native)
-- Use a CI/CD pipeline (Tekton/GitHub Actions) with amd64 runners
-- Build from an amd64 development machine
-
-**Discrepancy to reconcile at phase close:** REQUIREMENTS.md and ROADMAP.md say "Deploy NextGCore on OpenShift" but the actual deployment is Prism NWDAF fallback. The D-10 decision explicitly approved this fallback, but the tracking documents should be updated to reflect the actual outcome.
+**Build artifacts on cluster:**
+- ImageStream `nextgcore-builder`: builder image with compiled binaries in /out/
+- ImageStream `nextgcore-runtime`: runtime image with all NF binaries at /usr/local/bin/
+- BuildConfig `nextgcore-builder`: Docker strategy, 8 CPU / 16Gi memory
+- BuildConfig `nextgcore-runtime`: Docker strategy, 2 CPU / 4Gi memory
 
 ## Task Commits
 
-1. **Task 1: Deploy Prism NWDAF mock to OpenShift** - `957b839` (feat)
-2. **Task 2: Create backend-routing ConfigMap** - `c5a9595` (feat)
-3. **Task 3: Verify complete backend infrastructure** - checkpoint:human-verify (pending)
+1. **Task 1: Deploy real NextGCore NWDAF on OpenShift (Path A)** - `cb42be9` (feat)
+2. **Task 2: Update backend-routing ConfigMap and scripts** - `a13cb1d` (feat)
+3. **Task 3: Human verification** - checkpoint approved
+
+**Prior commits (from earlier Path B session, now superseded):**
+- `957b839` - Original Prism NWDAF deployment (superseded by cb42be9)
+- `c5a9595` - Original ConfigMap backend-routing (superseded by a13cb1d)
 
 ## Files Created/Modified
 
-- `backends/openshift/nextgcore/deployment-nextgcore.yaml` - Prism NWDAF Deployment (Path B, tcpSocket probes)
-- `backends/openshift/nextgcore/service-nwdaf.yaml` - nextgcore-nwdaf ClusterIP Service on port 4010
-- `backends/openshift/configmap-backend-routing.yaml` - 6 per-API base URLs with consumer contract docs
-- `backends/specs/nwdaf_analyticsinfo_bundled.yaml` - Self-contained NWDAF AnalyticsInfo spec (all $ref inlined)
-- `backends/scripts/check-nwdaf.sh` - Updated: NF_LOAD event, /analytics path, dynamic=true, port 4010 default
-- `backends/scripts/verify-routing.sh` - Updated: NWDAF path corrected for Prism
+- `backends/openshift/nextgcore/deployment-nextgcore.yaml` - Full NextGCore stack: 9 Deployments + Services (MongoDB, NRF, AUSF, UDM, UDR, AMF, SMF, UPF, NWDAF)
+- `backends/openshift/nextgcore/service-nwdaf.yaml` - nextgcore-nwdaf ClusterIP Service on port 7777
+- `backends/openshift/nextgcore/Dockerfile.runtime` - Multi-stage Dockerfile: extracts binaries from builder, adds runtime deps
+- `backends/openshift/nextgcore/configmap-nextgcore.yaml` - NF configuration ConfigMap (NRF, AUSF, UDM, UDR, AMF, SMF, UPF, NWDAF)
+- `backends/openshift/nextgcore/scc-nextgcore-upf.yaml` - Custom SCC for UPF (privileged, NET_ADMIN, SYS_ADMIN)
+- `backends/openshift/configmap-backend-routing.yaml` - 6 per-API base URLs, NWDAF_BASE_URL at port 7777
+- `backends/specs/nwdaf_analyticsinfo_bundled.yaml` - Self-contained NWDAF AnalyticsInfo spec (retained from Path B work)
+- `backends/scripts/check-nwdaf.sh` - Updated: port 7777, NextGCore path, HTTP/2 h2c support
+- `backends/scripts/verify-routing.sh` - Updated: NWDAF test path for NextGCore
 
 ## Decisions Made
 
-- **Prism NWDAF fallback (Path B) taken:** ARM64-to-amd64 cross-compilation blocker prevented NextGCore deployment. Two build attempts were made: (1) direct `podman build --platform linux/amd64` -- failed with `cc: error: unrecognized command-line option '-m64'` because the Dockerfile.builder cargo config is missing the x86_64 cross-linker entry; (2) manual fix of cargo config -- same error persisted (likely build cache or cc-crate-level issue). Path B is the D-10-approved fallback.
-- **Bundled NWDAF spec created:** The vendored `nwdaf_analyticsinfo_rel16.yaml` has `$ref` links to 5 external 3GPP spec files (TS29520, TS29571, TS29510, TS29503, TS29554) that are not vendored. Prism crashes with `ENOENT` when it cannot resolve these. A self-contained bundled spec was created with all schemas inlined.
-- **No SCC created:** Path B (Prism) runs under restricted-v2 SCC. No custom SCC is needed. The `scc-nextgcore-upf.yaml` file was not created (per plan: "Do NOT create a placeholder SCC file" in Path B).
-- **ConfigMap mounted-file consumer contract:** Documented that only volume-mount consumption enables live switching. Env-var consumption requires pod restart, violating BACK-03.
+- **OpenShift BuildConfig for native build:** Instead of fixing Dockerfile.builder cross-compilation (which failed twice), used OpenShift BuildConfig with Docker strategy to compile on amd64 cluster nodes. This avoids the ARM64-to-amd64 cross-compilation entirely.
+- **Unified runtime image:** Single `nextgcore-runtime` image contains ALL NF binaries (not per-NF images). Each Deployment overrides `command` to select its binary. More efficient: 2 builds total instead of 10.
+- **NEXTGCORE_SBI_PROFILE=dev:** Required for cleartext HTTP/2 h2c. Without it, NFs crash with "SBI production profile requires a TLS certificate." NRF, UDR, and UPF are unaffected (different TLS defaults).
+- **NWDAF CLI args:** The NWDAF binary defaults to port 7815 and NRF at 127.0.0.1:7777. The config file does not override these. Explicit `--sbi-port 7777 --nrf-uri http://nrf.otel25-backends.svc.cluster.local:7777` CLI args are required.
+- **AMF exec probe:** AMF binds SBI to 127.0.0.1 in dev mode, making tcpSocket probes (which connect via pod IP) fail. Changed to exec probe using `curl -sf http://127.0.0.1:7777/health`.
 
 ## Deviations from Plan
 
 ### Auto-fixed Issues
 
-**1. [Rule 3 - Blocking] ARM64-to-amd64 cross-compilation failure**
-- **Found during:** Task 1, Path A attempt
-- **Issue:** NextGCore images built on ARM64 macOS; OpenShift cluster is amd64. Dockerfile.builder cross-compilation only handles amd64-to-arm64 direction.
-- **Fix:** Fell back to Path B (Prism NWDAF) per D-10.
-- **Files modified:** None (decision change, not code fix)
+**1. [Rule 1 - Bug] NFs crash with TLS certificate requirement**
+- **Found during:** Task 1 (initial deployment)
+- **Issue:** AUSF, UDM, AMF, SMF all crash with "SBI production profile requires a TLS certificate at /etc/nextgcore/tls/server.crt"
+- **Fix:** Added `NEXTGCORE_SBI_PROFILE=dev` environment variable to all NF containers
+- **Files modified:** `backends/openshift/nextgcore/deployment-nextgcore.yaml`
+- **Commit:** `cb42be9`
 
-**2. [Rule 3 - Blocking] NWDAF spec unresolvable external references**
-- **Found during:** Task 1, Step B2 (Prism deployment)
-- **Issue:** First Prism NWDAF deployment crashed with `ENOENT: no such file or directory, open '/specs/TS29520_Nnwdaf_EventsSubscription.yaml'`. The vendored spec has `$ref` to 5 external 3GPP YAML files not in the repo.
-- **Fix:** Created `nwdaf_analyticsinfo_bundled.yaml` with all external schemas inlined (NfLoadLevelInformation, SliceLoadLevelInformation, NFType, ProblemDetails, etc.)
-- **Files created:** `backends/specs/nwdaf_analyticsinfo_bundled.yaml`
-- **Commit:** `957b839`
+**2. [Rule 1 - Bug] NWDAF uses wrong port and NRF address**
+- **Found during:** Task 1 (initial deployment)
+- **Issue:** NWDAF binary defaults to port 7815 and NRF at 127.0.0.1:7777 instead of reading from config file
+- **Fix:** Added explicit CLI args `--sbi-port 7777 --nrf-uri http://nrf.otel25-backends.svc.cluster.local:7777`
+- **Files modified:** `backends/openshift/nextgcore/deployment-nextgcore.yaml`
+- **Commit:** `cb42be9`
 
-**3. [Rule 1 - Bug] check-nwdaf.sh assumptions incorrect for Prism**
-- **Found during:** Task 1, verification
-- **Issue:** Script used LOAD_LEVEL_INFORMATION event (returns 204 on NextGCore), default port 8080, and full path /nnwdaf-analyticsinfo/v1/analytics.
-- **Fix:** Updated to use NF_LOAD event, port 4010 default, /analytics path (Prism strips server base), added Prefer: dynamic=true header, made path configurable via NWDAF_PATH env var.
-- **Files modified:** `backends/scripts/check-nwdaf.sh`
-- **Commit:** `957b839`
+**3. [Rule 1 - Bug] AMF readiness probe fails due to localhost binding**
+- **Found during:** Task 1 (pods not becoming Ready)
+- **Issue:** AMF binds SBI to 127.0.0.1 in dev mode; tcpSocket probe connects via pod IP (10.129.x.x), connection refused
+- **Fix:** Changed AMF readiness/liveness probes from tcpSocket to exec (`curl -sf http://127.0.0.1:7777/health || ss -tln | grep -q 7777`)
+- **Files modified:** `backends/openshift/nextgcore/deployment-nextgcore.yaml`
+- **Commit:** `cb42be9`
 
-**4. [Rule 1 - Bug] verify-routing.sh NWDAF path incorrect**
-- **Found during:** Task 2
-- **Issue:** Script used `/nnwdaf-analyticsinfo/v1/analytics?event-id=LOAD_LEVEL_INFORMATION` for NWDAF test path.
-- **Fix:** Changed to `/analytics?event-id=NF_LOAD` (Prism path, NF_LOAD event)
-- **Files modified:** `backends/scripts/verify-routing.sh`
-- **Commit:** `957b839`
+**4. [Rule 3 - Blocking] BuildConfig runtime build fails with "no FROM image"**
+- **Found during:** Task 1 (runtime image build)
+- **Issue:** BuildConfig source spec had `dockerfile: ""` which overrode the Dockerfile from context with an empty string
+- **Fix:** Removed the empty `dockerfile` field from BuildConfig source spec via `oc patch --type=json`; used `--from-dir` instead of `--from-file`
+- **Files modified:** None (cluster-side fix only)
+- **Commit:** N/A (cluster configuration, not repo files)
 
 ## Verification Results
 
-### In-Cluster Backend Connectivity (from test pod)
-| Backend | URL | HTTP Status |
-|---------|-----|-------------|
-| TMF642 | prism-tmf642:4010/alarm | 200 |
-| TMF628 | prism-tmf628:4010/measurementCollectionJob | 200 |
-| TMF621 | prism-tmf621:4010/troubleTicket | 200 |
-| CAMARA verify | prism-camara:4010/verify (POST) | 200 |
-| CAMARA retrieval | prism-camara-retrieval:4010/retrieve (POST) | 200 |
-| NWDAF | nextgcore-nwdaf:4010/analytics?event-id=NF_LOAD | 200 |
+### Pod Status (9/9 Running)
+| NF | Pod | Ready | Status |
+|----|-----|-------|--------|
+| MongoDB | mongodb-56ddc7fd7f-ltvrg | 1/1 | Running |
+| NRF | nrf-658fc59f76-lbqnw | 1/1 | Running |
+| AUSF | ausf-579c79877c-phlt5 | 1/1 | Running |
+| UDM | udm-6fb9dbb647-7mmcj | 1/1 | Running |
+| UDR | udr-867444c4c9-nsdhg | 1/1 | Running |
+| AMF | amf-7b86fdc5df-rnqmc | 1/1 | Running |
+| SMF | smf-57ccd9f487-p2bbp | 1/1 | Running |
+| UPF | upf-b4d49b599-nkkcm | 1/1 | Running |
+| NWDAF | nwdaf-5d7b7bfb4-4hpkp | 1/1 | Running |
 
-### check-nwdaf.sh Results
-- HTTP: PASS (200)
-- JSON: PASS
-- Analytics fields: 7/7 (sliceLoadLevelInfos, nsiLoadLevelInfos, nfLoadLevelInfos, nwPerfs, svcExps, expiry, timeStampGen)
-- Confidence: HIGH
+### NWDAF Endpoint Verification
+- **URL:** `http://nextgcore-nwdaf.otel25-backends.svc.cluster.local:7777/nnwdaf-analyticsinfo/v1/analytics?event-id=NF_LOAD`
+- **Protocol:** HTTP/2 h2c (confirmed via `--http2-prior-knowledge`)
+- **Response:** HTTP 204 No Content (correct for fresh deployment with no UE traffic)
+- **NRF Registration:** "NWDAF registered with NRF successfully"
+- **NRF NFStatusSubscribe:** Active
 
-### D-16 Switching Test
-- Patched TMF642_BASE_URL from tmf642 Service URL to tmf628 Service URL: PASS (value changed immediately)
-- Restored TMF642_BASE_URL to original: PASS (value restored correctly)
-- No pod restarts required
+### ConfigMap Verification
+- `NWDAF_BASE_URL`: `http://nextgcore-nwdaf.otel25-backends.svc.cluster.local:7777` (confirmed)
+- All 6 routing keys present: TMF642, TMF628, TMF621, CAMARA, CAMARA_RETRIEVAL, NWDAF
 
 ## NWDAF Endpoint Details (for downstream phases)
 
 - **Service name:** nextgcore-nwdaf
-- **Port:** 4010 (Prism)
-- **Analytics path:** /analytics (NOT /nnwdaf-analyticsinfo/v1/analytics -- Prism strips server base path)
-- **ConfigMap key:** NWDAF_BASE_URL = http://nextgcore-nwdaf.otel25-backends.svc.cluster.local:4010
-- **Working event type:** NF_LOAD (returns dynamically generated analytics with nfLoadLevelInfos)
-- **Curl example:** `curl -H "Prefer: dynamic=true" "http://nextgcore-nwdaf.otel25-backends.svc.cluster.local:4010/analytics?event-id=NF_LOAD"`
-- **HTTP protocol:** HTTP/1.1 (unlike NextGCore which uses HTTP/2 h2c)
+- **Port:** 7777 (SBI)
+- **Protocol:** HTTP/2 h2c (use `curl --http2-prior-knowledge`)
+- **Analytics path:** `/nnwdaf-analyticsinfo/v1/analytics`
+- **ConfigMap key:** `NWDAF_BASE_URL = http://nextgcore-nwdaf.otel25-backends.svc.cluster.local:7777`
+- **Working event type:** NF_LOAD
+- **Expected response:** HTTP 204 (no load data) or HTTP 200 with analytics JSON (when NFs have load data)
+- **Curl example:** `curl --http2-prior-knowledge "http://nextgcore-nwdaf.otel25-backends.svc.cluster.local:7777/nnwdaf-analyticsinfo/v1/analytics?event-id=NF_LOAD"`
 
 ## Known Stubs
 
-None -- all endpoints return real (dynamically generated) responses.
+None -- NWDAF returns real analytics responses (HTTP 204 when no data, HTTP 200 with TS 29.520 analytics when load data exists).
 
 ## Threat Flags
 
-None -- no new security surface beyond what was anticipated in the plan's threat model. Prism NWDAF runs under restricted-v2 SCC (lower privilege than NextGCore Path A's custom SCC), which is a security improvement over the planned deployment.
+| Flag | File | Description |
+|------|------|-------------|
+| threat_flag: elevated-privilege | scc-nextgcore-upf.yaml | Custom SCC grants privileged + NET_ADMIN + SYS_ADMIN to UPF ServiceAccount. Mitigated by: dedicated SA (not default), UPF in separate pod, internal-only ClusterIP, dev cluster (D-01). |
 
 ## Self-Check: PASSED
 
 - [x] backends/openshift/nextgcore/deployment-nextgcore.yaml exists
 - [x] backends/openshift/nextgcore/service-nwdaf.yaml exists
+- [x] backends/openshift/nextgcore/Dockerfile.runtime exists
+- [x] backends/openshift/nextgcore/configmap-nextgcore.yaml exists
+- [x] backends/openshift/nextgcore/scc-nextgcore-upf.yaml exists
 - [x] backends/openshift/configmap-backend-routing.yaml exists
 - [x] backends/specs/nwdaf_analyticsinfo_bundled.yaml exists
-- [x] .planning/phases/01-backend-infrastructure/01-04-SUMMARY.md exists
-- [x] Task 1 commit 957b839 found in git log
-- [x] Task 2 commit c5a9595 found in git log
-- [x] 6 pods verified Running via oc get pods
-- [x] All 6 backends respond HTTP 200 from within cluster
-- [x] check-nwdaf.sh passes with 7/7 analytics fields
-- [x] D-16 ConfigMap switching test passes
+- [x] Task 1 commit cb42be9 found in git log
+- [x] Task 2 commit a13cb1d found in git log
+- [x] 9 pods verified 1/1 Running via oc get pods
+- [x] NWDAF responds HTTP 204 to NF_LOAD query
+- [x] ConfigMap NWDAF_BASE_URL points to port 7777
+- [x] NWDAF registered with NRF successfully
+- [x] User independently verified all 4 verification steps
 
 ---
 *Phase: 01-backend-infrastructure*
-*Completed: 2026-10-02 (pending checkpoint approval)*
+*Completed: 2026-10-02 (checkpoint approved)*
