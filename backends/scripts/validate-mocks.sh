@@ -145,7 +145,7 @@ for entry in "${ENDPOINTS[@]}"; do
     echo "  PASS: HTTP $HTTP_CODE"
   else
     echo "  FAIL: HTTP $HTTP_CODE"
-    ((FAIL++))
+    FAIL=$((FAIL + 1))
     echo ""
     continue
   fi
@@ -155,17 +155,17 @@ for entry in "${ENDPOINTS[@]}"; do
     echo "  PASS: valid JSON body"
   else
     echo "  FAIL: invalid JSON body"
-    ((FAIL++))
+    FAIL=$((FAIL + 1))
     echo ""
     continue
   fi
 
   # Level 3: Spec-specific field check (soft gate -- warning only)
   if check_fields "$name" "$BODY"; then
-    ((PASS++))
+    PASS=$((PASS + 1))
   else
-    ((WARN++))
-    ((PASS++))  # Still counts as pass (field checks are warnings, not hard failures)
+    WARN=$((WARN + 1))
+    PASS=$((PASS + 1))  # Still counts as pass (field checks are warnings, not hard failures)
   fi
 
   echo ""

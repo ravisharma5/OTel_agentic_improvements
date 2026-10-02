@@ -37,7 +37,7 @@ for KEY in "${KEYS[@]}"; do
   URL=$(oc get configmap "$CM_NAME" -n "$NAMESPACE" -o jsonpath="{.data.${KEY}}")
   if [[ -z "$URL" ]]; then
     echo "  FAIL: $KEY not found in ConfigMap"
-    ((FAIL++))
+    FAIL=$((FAIL + 1))
     continue
   fi
 
@@ -57,10 +57,10 @@ for KEY in "${KEYS[@]}"; do
   HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "${URL}${TEST_PATH}" --max-time 10 2>/dev/null || echo "000")
   if [[ "$HTTP_CODE" =~ ^[2-4] ]]; then
     echo "  OK ($HTTP_CODE)"
-    ((PASS++))
+    PASS=$((PASS + 1))
   else
     echo "  FAIL ($HTTP_CODE) -- backend unreachable"
-    ((FAIL++))
+    FAIL=$((FAIL + 1))
   fi
 done
 

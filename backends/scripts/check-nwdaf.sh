@@ -82,28 +82,28 @@ echo "  Analytics field assertions (TS 29.520 AnalyticsData schema):"
 
 # Check for load level info fields
 for field in sliceLoadLevelInfos nsiLoadLevelInfos nfLoadLevelInfos; do
-  ((ANALYTICS_FIELDS_CHECKED++))
+  ANALYTICS_FIELDS_CHECKED=$((ANALYTICS_FIELDS_CHECKED + 1))
   if echo "$BODY" | jq -e ".$field // empty" >/dev/null 2>&1; then
     echo "    FOUND: $field"
-    ((ANALYTICS_FIELDS_FOUND++))
+    ANALYTICS_FIELDS_FOUND=$((ANALYTICS_FIELDS_FOUND + 1))
   fi
 done
 
 # Check for performance/experience fields
 for field in nwPerfs svcExps; do
-  ((ANALYTICS_FIELDS_CHECKED++))
+  ANALYTICS_FIELDS_CHECKED=$((ANALYTICS_FIELDS_CHECKED + 1))
   if echo "$BODY" | jq -e ".$field // empty" >/dev/null 2>&1; then
     echo "    FOUND: $field"
-    ((ANALYTICS_FIELDS_FOUND++))
+    ANALYTICS_FIELDS_FOUND=$((ANALYTICS_FIELDS_FOUND + 1))
   fi
 done
 
 # Check for metadata fields
 for field in expiry timeStampGen; do
-  ((ANALYTICS_FIELDS_CHECKED++))
+  ANALYTICS_FIELDS_CHECKED=$((ANALYTICS_FIELDS_CHECKED + 1))
   if echo "$BODY" | jq -e ".$field // empty" >/dev/null 2>&1; then
     echo "    FOUND: $field"
-    ((ANALYTICS_FIELDS_FOUND++))
+    ANALYTICS_FIELDS_FOUND=$((ANALYTICS_FIELDS_FOUND + 1))
   fi
 done
 
