@@ -55,7 +55,7 @@ for KEY in "${KEYS[@]}"; do
   esac
 
   HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "${URL}${TEST_PATH}" --max-time 10 2>/dev/null || echo "000")
-  if [[ "$HTTP_CODE" =~ ^[2-4] ]]; then
+  if [[ "$HTTP_CODE" =~ ^2 ]]; then
     echo "  OK ($HTTP_CODE)"
     PASS=$((PASS + 1))
   else
