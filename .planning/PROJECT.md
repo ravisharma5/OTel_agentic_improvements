@@ -10,6 +10,10 @@ Part of the LFN Applied Observability for AIOps Working Group. Ravi Sharma (Red 
 
 OTel 2.5 can correctly call telecom tools (TMF, CAMARA, NWDAF) to complete fault prediction workflows — measured by improvement on ZTE-AIM/TFCE benchmark over OTel 2.0.
 
+## Current State
+
+Phase 1 (Backend Infrastructure) complete — all 5 Prism mock backends (TMF642, TMF628, TMF621, CAMARA verify + retrieve) and a real NextGCore NWDAF deployment (not a mock fallback) are running on OpenShift in namespace `otel25-backends`, with ConfigMap-based mock/live routing verified. Ready for Phase 2 (MCP Tooling Foundation).
+
 ## Requirements
 
 ### Validated
@@ -81,4 +85,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-09-26 after initialization*
+*Last updated: 2026-10-02 after Phase 1 completion*
