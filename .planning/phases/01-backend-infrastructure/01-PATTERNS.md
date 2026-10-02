@@ -1,6 +1,7 @@
 # Phase 1: Backend Infrastructure - Pattern Map
 
 **Mapped:** 2026-09-27
+**Revised:** 2026-10-02 (updated Prism manifest count to 5, CAMARA probe to tcpSocket, ConfigMap to 6 keys with mounted-file contract)
 **Files analyzed:** 21 new files to create
 **Analogs found:** 0 / 21 (greenfield repo -- no existing application code, Dockerfiles, manifests, or scripts)
 
@@ -26,6 +27,7 @@ This repository contains only markdown planning/research documents and a `.plann
 | `backends/openshift/prism-tmf628.yaml` | config (k8s manifest) | request-response | No analog | N/A -- greenfield |
 | `backends/openshift/prism-tmf621.yaml` | config (k8s manifest) | request-response | No analog | N/A -- greenfield |
 | `backends/openshift/prism-camara.yaml` | config (k8s manifest) | request-response | No analog | N/A -- greenfield |
+| `backends/openshift/prism-camara-retrieval.yaml` | config (k8s manifest) | request-response | No analog | N/A -- greenfield |
 | `backends/openshift/nextgcore/scc-nextgcore-upf.yaml` | config (security policy) | N/A (declarative infra) | No analog | N/A -- greenfield |
 | `backends/openshift/nextgcore/deployment-nextgcore.yaml` | config (k8s manifest) | request-response | No analog | N/A -- greenfield |
 | `backends/openshift/nextgcore/service-nwdaf.yaml` | config (k8s manifest) | request-response | No analog | N/A -- greenfield |
@@ -90,7 +92,7 @@ CMD ["mock", "-h", "0.0.0.0", "-p", "4010", "--dynamic", "/specs/api.yaml"]
 
 ### `backends/openshift/prism-tmf642.yaml` (k8s manifest, request-response)
 
-**Applies to all 4 Prism Deployment+Service manifests:** `prism-tmf642.yaml`, `prism-tmf628.yaml`, `prism-tmf621.yaml`, `prism-camara.yaml`
+**Applies to all 5 Prism Deployment+Service manifests:** `prism-tmf642.yaml`, `prism-tmf628.yaml`, `prism-tmf621.yaml`, `prism-camara.yaml`, `prism-camara-retrieval.yaml`
 
 **Source pattern:** RESEARCH.md "Pattern 1" -- Example OpenShift Deployment + Service (RESEARCH.md lines 232-294)
 
@@ -162,14 +164,14 @@ spec:
 ```
 
 **Per-API health check paths (RESEARCH.md Pitfall 4):**
-Prism has no `/health` endpoint. Use a spec-defined GET path:
-- TMF642: `/alarm`
-- TMF628: `/measurementCollectionJob` (verify this exists in Swagger 2.0 spec)
-- TMF621: `/troubleTicket`
-- CAMARA: Inspect spec -- prefer a GET endpoint; `/verify` may require POST body
+Prism has no `/health` endpoint. Probe selection depends on whether the spec has a safe GET path:
+- TMF642: `httpGet` on `/alarm`
+- TMF628: `httpGet` on `/measurementCollectionJob` (verify this exists in Swagger 2.0 spec)
+- TMF621: `httpGet` on `/troubleTicket`
+- CAMARA (prism-camara and prism-camara-retrieval): `tcpSocket` on port 4010. Both CAMARA specs are POST-heavy with no safe GET endpoints; httpGet probes would receive HTTP 4xx/405 responses causing crash-looping. The tcpSocket probe confirms the Prism process is listening without requiring a valid HTTP request. (Decided in 01-03-PLAN.md revision.)
 
 **Per-API variation:**
-- Each manifest replaces `tmf642` with the API name (`tmf628`, `tmf621`, `camara`)
+- Each manifest replaces `tmf642` with the API name (`tmf628`, `tmf621`, `camara`, `camara-retrieval`)
 - Each uses its own image (`prism-tmf628:latest`, etc.)
 - Health check path changes per spec (see above)
 - TMF628 note (RESEARCH.md Pitfall 5): Swagger 2.0 JSON spec -- test locally first for circular $ref issues
@@ -208,10 +210,19 @@ data:
   TMF628_BASE_URL: "http://prism-tmf628.otel25-backends.svc.cluster.local:4010"
   TMF621_BASE_URL: "http://prism-tmf621.otel25-backends.svc.cluster.local:4010"
   CAMARA_BASE_URL: "http://prism-camara.otel25-backends.svc.cluster.local:4010"
+  CAMARA_RETRIEVAL_BASE_URL: "http://prism-camara-retrieval.otel25-backends.svc.cluster.local:4010"
   NWDAF_BASE_URL: "http://nextgcore-nwdaf.otel25-backends.svc.cluster.local:8080"
 ```
 
-**Key design constraint (D-15, ARCHITECTURE.md Anti-Pattern 5):** Backend URLs must never be embedded in code. The same code must work against Prism and live backends by reading from ConfigMap.
+**Key design constraints:**
+
+- **(D-15, ARCHITECTURE.md Anti-Pattern 5):** Backend URLs must never be embedded in code. The same code must work against Prism and live backends by reading from ConfigMap.
+
+- **(D-14):** 6 keys, one per API: TMF642, TMF628, TMF621, CAMARA (verification), CAMARA_RETRIEVAL, NWDAF.
+
+- **Consumer contract -- mounted-file consumption ONLY for no-redeploy compliance (D-15, BACK-03):** Phase 2/3 MCP servers MUST consume this ConfigMap via volume mount (not envFrom/env). Only mounted-file consumption enables live switching without pod restart -- the kubelet updates mounted ConfigMap files within ~1 minute of an edit. Env-var consumption (envFrom or individual env entries) reads values at pod startup only; changing the ConfigMap would require a pod restart, violating BACK-03's "switch without redeploying services" criterion. The ConfigMap YAML should include a comment block documenting this contract. See 01-04-PLAN.md for full details.
+
+- **NWDAF port varies by path:** Port 8080 for NextGCore Path A, port 4010 for Prism Path B. The ConfigMap value is the single source of truth; verification scripts (check-nwdaf.sh, verify-routing.sh) derive the NWDAF URL from the ConfigMap at runtime rather than relying on hardcoded defaults.
 
 ---
 
@@ -390,7 +401,7 @@ set -euo pipefail
 NAMESPACE="otel25-backends"
 CM_NAME="backend-routing"
 
-for KEY in TMF642_BASE_URL TMF628_BASE_URL TMF621_BASE_URL CAMARA_BASE_URL NWDAF_BASE_URL; do
+for KEY in TMF642_BASE_URL TMF628_BASE_URL TMF621_BASE_URL CAMARA_BASE_URL CAMARA_RETRIEVAL_BASE_URL NWDAF_BASE_URL; do
   URL=$(oc get configmap "$CM_NAME" -n "$NAMESPACE" -o jsonpath="{.data.$KEY}")
   echo "Testing $KEY -> $URL"
   HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$URL/" --max-time 10 || echo "000")
@@ -439,6 +450,7 @@ fi
 - NWDAF endpoint path may differ (Assumption A4) -- verify against NextGCore at execution time
 - Use one-shot analytics queries, not subscriptions (RESEARCH.md Pitfall 2 -- subscriptions are memory-only, lost on restart)
 - If NWDAF returns errors/empty, trigger timebox-then-fallback (D-10)
+- **IMPORTANT:** The hardcoded default (`http://nextgcore-nwdaf:8080`) is only correct for Path A (NextGCore). When Path B (Prism fallback) is taken, the NWDAF Prism runs on port 4010. Callers MUST export `NWDAF_BASE_URL` from the ConfigMap before invoking this script to ensure the correct port is used regardless of path. Pattern: `export NWDAF_BASE_URL=$(oc get configmap backend-routing -n otel25-backends -o jsonpath='{.data.NWDAF_BASE_URL}')`
 
 ---
 
@@ -450,7 +462,7 @@ All resources use namespace `otel25-backends`. Every manifest's `metadata.namesp
 
 ### Pattern: ClusterIP Services (No External Routes)
 **Source:** RESEARCH.md Security Domain -- "Exposed mock endpoints outside cluster" threat
-**Apply to:** All Service manifests (`prism-tmf642.yaml`, `prism-tmf628.yaml`, `prism-tmf621.yaml`, `prism-camara.yaml`, `service-nwdaf.yaml`)
+**Apply to:** All Service manifests (`prism-tmf642.yaml`, `prism-tmf628.yaml`, `prism-tmf621.yaml`, `prism-camara.yaml`, `prism-camara-retrieval.yaml`, `service-nwdaf.yaml`)
 All services use `type: ClusterIP`. No Routes are created for mock backends unless explicitly needed for debugging. This prevents information disclosure of mock data outside the cluster.
 
 ### Pattern: Resource Limits
@@ -501,3 +513,4 @@ Labels are used for Service selectors and for `oc get pods -l api=tmf642` filter
 **Files scanned:** All non-`.git` files -- only markdown documents and `.planning/config.json` found
 **Pattern extraction source:** `01-RESEARCH.md` code examples (no in-repo code exists)
 **Pattern extraction date:** 2026-09-27
+**Revision date:** 2026-10-02 (checker-driven updates: 5 Prism manifests, tcpSocket CAMARA probes, 6 ConfigMap keys, mounted-file contract, NWDAF port single-source-of-truth)
