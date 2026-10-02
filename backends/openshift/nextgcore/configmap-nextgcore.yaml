@@ -222,7 +222,7 @@ data:
       sbi:
         server:
           - address: 0.0.0.0
-            advertise: nwdaf.otel25-backends.svc.cluster.local
+            advertise: nextgcore-nwdaf.otel25-backends.svc.cluster.local
             port: 7777
       nrf:
         uri: http://nrf.otel25-backends.svc.cluster.local:7777
