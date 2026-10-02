@@ -1,3 +1,10 @@
+# ServiceAccount for UPF (referenced by Deployment and SCC below)
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: nextgcore-upf
+  namespace: otel25-backends
+---
 # Custom SCC for NextGCore UPF container
 #
 # UPF requires privileged access for TUN/TAP interface creation and IP forwarding.
