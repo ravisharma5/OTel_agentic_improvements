@@ -13,6 +13,7 @@ Downloaded: 2026-10-02
 | camara_location_retrieval.yaml | camaraproject/DeviceLocation | r3.2 (release tag) | N/A | Tag-pinned |
 | nwdaf_analyticsinfo_rel16.yaml | jdegre/5GC_APIs | Rel-16 (frozen branch) | N/A | Branch-pinned |
 | nwdaf_eventssubscription_rel16.yaml | jdegre/5GC_APIs | Rel-16 (frozen branch) | N/A | Branch-pinned |
+| nwdaf_analyticsinfo_bundled.yaml | Derived from nwdaf_analyticsinfo_rel16.yaml | v1.1.5 (TS 29.520 V16.12.0) | N/A | Derived (see Notes) |
 
 ## Notes
 
@@ -21,3 +22,4 @@ Downloaded: 2026-10-02
 - NWDAF specs pinned to Rel-16 frozen release branch (3GPP release freeze).
 - TMF628 is Swagger 2.0 JSON format (not OAS 3.0). Mocked as-is per decision D-07.
 - All other specs are OAS 3.0 YAML format.
+- `nwdaf_analyticsinfo_bundled.yaml` is derived from `nwdaf_analyticsinfo_rel16.yaml` with all external `$ref` links (TS29571, TS29510, TS29503, TS29554) inlined for Prism mock compatibility. Regenerate by re-bundling the rel16 source when the upstream spec changes.
