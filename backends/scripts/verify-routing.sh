@@ -114,6 +114,6 @@ if [[ $FAIL -eq 0 ]]; then
   echo "OVERALL: PASS"
   exit 0
 else
-  echo "OVERALL: PASS (with $FAIL backend connectivity warnings)"
-  exit 0
+  echo "OVERALL: FAIL ($FAIL backend(s) unreachable)"
+  exit 1
 fi
