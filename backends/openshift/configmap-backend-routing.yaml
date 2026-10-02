@@ -1,0 +1,59 @@
+# Backend Routing ConfigMap (D-14: per-API routing, D-15: plain ConfigMap)
+#
+# === CONSUMER CONTRACT (BACK-03: no-redeploy switching) ===
+#
+# This ConfigMap is intended to be consumed by Phase 2/3 MCP servers via
+# VOLUME MOUNT (not envFrom/env).
+#
+# Volume-mounted ConfigMaps are updated by the kubelet within ~1 minute of
+# a ConfigMap edit, enabling live switching without pod restart. To achieve
+# this, consumers MUST:
+#   1. Mount the ConfigMap as a volume (not use envFrom or individual env entries)
+#   2. Implement file-watching or periodic re-reading of the mounted file
+#   3. Use the mounted file contents as the backend URL at request time
+#
+# Env-var-based consumption (envFrom or individual env entries) reads values
+# only at pod startup. Changing the ConfigMap with env-var consumers would
+# require a pod restart to take effect, which does NOT satisfy BACK-03's
+# "switch without redeploying services" criterion.
+#
+# Phase 2/3 MCP servers MUST use volume-mounted ConfigMap files and implement
+# file-watching or periodic re-reading of the mounted file to achieve live
+# backend switching per D-15 and BACK-03.
+#
+# === SWITCHING CONTRACT ===
+#
+# To switch a backend URL (e.g., from Prism mock to NextGCore live):
+#   oc patch configmap backend-routing -n otel25-backends \
+#     --type merge -p '{"data":{"NWDAF_BASE_URL":"http://nextgcore-nwdaf.otel25-backends.svc.cluster.local:7777"}}'
+#
+# No pod restart is needed for volume-mounted consumers. The kubelet
+# propagates the change within ~60 seconds (configurable via kubelet
+# syncFrequency).
+#
+# === NWDAF PATH NOTE ===
+#
+# Prism NWDAF (Path B) serves analytics at /analytics (Prism strips server base path).
+# NextGCore NWDAF (Path A) serves at /nnwdaf-analyticsinfo/v1/analytics.
+# Consumers should use the NWDAF_BASE_URL + the appropriate path for their backend.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backend-routing
+  namespace: otel25-backends
+  labels:
+    purpose: backend-routing
+    phase: "1"
+data:
+  # TMF API endpoints (Prism mock backends from Plan 03)
+  TMF642_BASE_URL: "http://prism-tmf642.otel25-backends.svc.cluster.local:4010"
+  TMF628_BASE_URL: "http://prism-tmf628.otel25-backends.svc.cluster.local:4010"
+  TMF621_BASE_URL: "http://prism-tmf621.otel25-backends.svc.cluster.local:4010"
+
+  # CAMARA API endpoints (Prism mock backends from Plan 03)
+  CAMARA_BASE_URL: "http://prism-camara.otel25-backends.svc.cluster.local:4010"
+  CAMARA_RETRIEVAL_BASE_URL: "http://prism-camara-retrieval.otel25-backends.svc.cluster.local:4010"
+
+  # NWDAF Analytics endpoint (Prism fallback, Path B per D-10)
+  # Port 4010 = Prism NWDAF. If switching to NextGCore (Path A), change to port 7777.
+  NWDAF_BASE_URL: "http://nextgcore-nwdaf.otel25-backends.svc.cluster.local:4010"
