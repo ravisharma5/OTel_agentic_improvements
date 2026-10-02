@@ -20,9 +20,9 @@
 
 set -euo pipefail
 
-NWDAF_URL="${NWDAF_BASE_URL:-http://nextgcore-nwdaf.otel25-backends.svc.cluster.local:4010}"
-# Default to Prism path; NextGCore uses /nnwdaf-analyticsinfo/v1/analytics
-NWDAF_ANALYTICS_PATH="${NWDAF_PATH:-/analytics}"
+NWDAF_URL="${NWDAF_BASE_URL:-http://nextgcore-nwdaf.otel25-backends.svc.cluster.local:7777}"
+# Default to NextGCore path (Path A); Prism uses /analytics
+NWDAF_ANALYTICS_PATH="${NWDAF_PATH:-/nnwdaf-analyticsinfo/v1/analytics}"
 
 echo "=== NWDAF Analytics Smoke Test ==="
 echo "Target: $NWDAF_URL"
@@ -33,9 +33,15 @@ echo ""
 ENDPOINT="${NWDAF_URL}${NWDAF_ANALYTICS_PATH}?event-id=NF_LOAD"
 echo "Test 1: GET $ENDPOINT"
 
-RESPONSE=$(curl -s -w "\n%{http_code}" "$ENDPOINT" \
+# Use --http2-prior-knowledge for NextGCore (HTTP/2 h2c, no TLS upgrade)
+# Falls back gracefully if curl doesn't support http2
+HTTP2_FLAG=""
+if curl --help all 2>/dev/null | grep -q "http2-prior-knowledge"; then
+  HTTP2_FLAG="--http2-prior-knowledge"
+fi
+
+RESPONSE=$(curl -s -w "\n%{http_code}" $HTTP2_FLAG "$ENDPOINT" \
   -H "Accept: application/json" \
-  -H "Prefer: dynamic=true" \
   --max-time 15 2>/dev/null || echo -e "\n000")
 HTTP_CODE=$(echo "$RESPONSE" | tail -1)
 BODY=$(echo "$RESPONSE" | sed '$d')

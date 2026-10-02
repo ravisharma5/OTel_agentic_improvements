@@ -54,6 +54,7 @@ data:
   CAMARA_BASE_URL: "http://prism-camara.otel25-backends.svc.cluster.local:4010"
   CAMARA_RETRIEVAL_BASE_URL: "http://prism-camara-retrieval.otel25-backends.svc.cluster.local:4010"
 
-  # NWDAF Analytics endpoint (Prism fallback, Path B per D-10)
-  # Port 4010 = Prism NWDAF. If switching to NextGCore (Path A), change to port 7777.
-  NWDAF_BASE_URL: "http://nextgcore-nwdaf.otel25-backends.svc.cluster.local:4010"
+  # NWDAF Analytics endpoint (NextGCore live, Path A)
+  # Port 7777 = NextGCore SBI port (HTTP/2 h2c)
+  # Full analytics path: /nnwdaf-analyticsinfo/v1/analytics?event-id=NF_LOAD
+  NWDAF_BASE_URL: "http://nextgcore-nwdaf.otel25-backends.svc.cluster.local:7777"
