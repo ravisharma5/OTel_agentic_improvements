@@ -22,4 +22,4 @@ ENTRYPOINT ["node", "dist/index.js"]
 
 # Dynamic mode generates varied responses from schema (D-08)
 # Bind to 0.0.0.0 so the mock is reachable from outside the container (D-08, RESEARCH.md anti-pattern)
-CMD ["mock", "-h", "0.0.0.0", "-p", "4010", "--dynamic", "/specs/api.yaml"]
+CMD ["mock", "-h", "0.0.0.0", "-p", "4010", "--dynamic", "-m", "false", "/specs/api.yaml"]

@@ -118,9 +118,22 @@ for entry in "${ENDPOINTS[@]}"; do
   # Build curl command
   CURL_ARGS=(-s -w "\n%{http_code}" -H "Prefer: dynamic=true" -X "$method" --max-time 10)
 
-  # POST endpoints need a request body for Prism to accept
+  # POST endpoints need a request body and auth header for Prism to accept
+  # CAMARA specs define OAuth2 security; Prism enforces it, returning 401 without a token
   if [[ "$method" == "POST" ]]; then
-    CURL_ARGS+=(-H "Content-Type: application/json" -d '{}')
+    CURL_ARGS+=(-H "Content-Type: application/json" -H "Authorization: Bearer mock-validation-token")
+    # Per-endpoint request bodies satisfying spec-required fields
+    case "$name" in
+      camara-verify)
+        CURL_ARGS+=(-d '{"device":{"phoneNumber":"+123456789"},"area":{"areaType":"CIRCLE","center":{"latitude":45.0,"longitude":7.0},"radius":2000}}')
+        ;;
+      camara-retrieval)
+        CURL_ARGS+=(-d '{"device":{"phoneNumber":"+123456789"}}')
+        ;;
+      *)
+        CURL_ARGS+=(-d '{}')
+        ;;
+    esac
   fi
 
   RESPONSE=$(curl "${CURL_ARGS[@]}" "$url" 2>/dev/null || echo -e "\n000")

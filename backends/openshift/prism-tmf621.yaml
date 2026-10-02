@@ -1,0 +1,64 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prism-tmf621
+  namespace: otel25-backends
+  labels:
+    app: prism-tmf621
+    api: tmf621
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prism-tmf621
+  template:
+    metadata:
+      labels:
+        app: prism-tmf621
+        api: tmf621
+    spec:
+      containers:
+      - name: prism
+        image: image-registry.openshift-image-registry.svc:5000/otel25-backends/prism-tmf621:latest
+        ports:
+        - containerPort: 4010
+          protocol: TCP
+        env:
+        - name: NODE_ENV
+          value: "production"
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 250m
+            memory: 256Mi
+        readinessProbe:
+          httpGet:
+            path: /troubleTicket
+            port: 4010
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /troubleTicket
+            port: 4010
+          initialDelaySeconds: 10
+          periodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prism-tmf621
+  namespace: otel25-backends
+  labels:
+    app: prism-tmf621
+    api: tmf621
+spec:
+  selector:
+    app: prism-tmf621
+  ports:
+  - port: 4010
+    targetPort: 4010
+    protocol: TCP
+  type: ClusterIP
