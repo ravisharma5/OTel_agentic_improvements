@@ -58,12 +58,17 @@ Plans:
   1. OpenAPI-to-MCP conversion tooling can generate a curated FastMCP server from a TMF or CAMARA OpenAPI spec, selecting specific operations rather than exposing the entire API surface
   2. MCP-Telecom's 60+ device-layer tools are deployed on OpenShift and individually callable via MCP protocol
 
-**Plans**: TBD
+**Plans:** 3 plans
 
 Plans:
+**Wave 1**
 
-- [ ] 02-01: TBD
-- [ ] 02-02: TBD
+- [ ] 02-01-PLAN.md -- Package verification, MCP-Telecom vendor/patch, config scaffolds
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 02-02-PLAN.md -- MCP-Telecom containerization and OpenShift deployment
+- [ ] 02-03-PLAN.md -- OpenAPI-to-MCP conversion CLI and CAMARA smoke test
 
 ### Phase 3: MCP Domain Servers and Gateway
 
@@ -128,7 +133,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4. Phase 5 runs in parallel.
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Backend Infrastructure | 4/4 | Complete    | 2026-10-02 |
-| 2. MCP Tooling Foundation | 0/2 | Not started | - |
+| 2. MCP Tooling Foundation | 0/3 | Not started | - |
 | 3. MCP Domain Servers and Gateway | 0/3 | Not started | - |
 | 4. SDG Pipeline and Dataset Production | 0/3 | Not started | - |
 | 5. Industry Gaps Document | 0/1 | Not started | - |
