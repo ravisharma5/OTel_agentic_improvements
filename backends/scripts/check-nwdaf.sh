@@ -5,28 +5,42 @@
 # per TS 29.520 spec. Uses one-shot analytics queries, not subscriptions
 # (RESEARCH.md Pitfall 2: subscriptions are memory-only, lost on restart).
 #
-# Usage: NWDAF_BASE_URL=http://localhost:8080 ./check-nwdaf.sh
-#        Or derive from ConfigMap:
+# Supports both deployment paths:
+#   Path A (NextGCore): port 7777, HTTP/2 h2c, full path /nnwdaf-analyticsinfo/v1/analytics
+#   Path B (Prism):     port 4010, HTTP/1.1, path /analytics (Prism strips server base path)
+#
+# Usage: NWDAF_BASE_URL=http://localhost:4010 ./check-nwdaf.sh
+#        Or derive from ConfigMap (preferred, single source of truth):
 #        export NWDAF_BASE_URL=$(oc get configmap backend-routing -n otel25-backends -o jsonpath='{.data.NWDAF_BASE_URL}')
 #        ./check-nwdaf.sh
 #
-# IMPORTANT: The default URL assumes NextGCore (port 8080). When using Prism
-# fallback (Path B per D-10), the port is 4010. Always set NWDAF_BASE_URL
-# from the ConfigMap to get the correct port.
+# NWDAF_PATH can be set to override the analytics endpoint path:
+#   /analytics                              (Prism, default)
+#   /nnwdaf-analyticsinfo/v1/analytics      (NextGCore Path A)
 
 set -euo pipefail
 
-NWDAF_URL="${NWDAF_BASE_URL:-http://nextgcore-nwdaf.otel25-backends.svc.cluster.local:8080}"
+NWDAF_URL="${NWDAF_BASE_URL:-http://nextgcore-nwdaf.otel25-backends.svc.cluster.local:7777}"
+# Default to NextGCore path (Path A); Prism uses /analytics
+NWDAF_ANALYTICS_PATH="${NWDAF_PATH:-/nnwdaf-analyticsinfo/v1/analytics}"
 
 echo "=== NWDAF Analytics Smoke Test ==="
 echo "Target: $NWDAF_URL"
+echo "Path: $NWDAF_ANALYTICS_PATH"
 echo ""
 
-# Test 1: AnalyticsInfo endpoint with LOAD_LEVEL_INFORMATION event
-ENDPOINT="${NWDAF_URL}/nnwdaf-analyticsinfo/v1/analytics?event-id=LOAD_LEVEL_INFORMATION"
+# Test 1: AnalyticsInfo endpoint with NF_LOAD event (confirmed working event type per Plan 02)
+ENDPOINT="${NWDAF_URL}${NWDAF_ANALYTICS_PATH}?event-id=NF_LOAD"
 echo "Test 1: GET $ENDPOINT"
 
-RESPONSE=$(curl -s -w "\n%{http_code}" "$ENDPOINT" \
+# Use --http2-prior-knowledge for NextGCore (HTTP/2 h2c, no TLS upgrade)
+# Falls back gracefully if curl doesn't support http2
+HTTP2_FLAG=""
+if curl --help all 2>/dev/null | grep -q "http2-prior-knowledge"; then
+  HTTP2_FLAG="--http2-prior-knowledge"
+fi
+
+RESPONSE=$(curl -s -w "\n%{http_code}" $HTTP2_FLAG "$ENDPOINT" \
   -H "Accept: application/json" \
   --max-time 15 2>/dev/null || echo -e "\n000")
 HTTP_CODE=$(echo "$RESPONSE" | tail -1)

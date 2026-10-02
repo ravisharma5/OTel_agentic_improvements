@@ -1,0 +1,52 @@
+# NextGCore Runtime Image for OpenShift
+#
+# Combined runtime image containing ALL NF binaries. Each Deployment
+# overrides the command to select the specific NF binary.
+#
+# Uses a multi-stage build:
+#   Stage 1: Extract binaries from the builder image (built in-cluster)
+#   Stage 2: Create runtime image with all deps (inline Dockerfile.core)
+#
+# This is more efficient than building per-NF images on the cluster:
+# one BuildConfig instead of 8, and the image layer cache is shared.
+#
+# Build context: minimal (just this Dockerfile, no other files needed).
+
+FROM image-registry.openshift-image-registry.svc:5000/otel25-backends/nextgcore-builder:latest AS binaries
+
+FROM debian:bookworm-slim
+
+LABEL org.opencontainers.image.title="NextGCore Runtime"
+LABEL org.opencontainers.image.description="All NextGCore NF binaries with runtime dependencies"
+
+# Runtime dependencies (from upstream Dockerfile.core)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    libssl3 \
+    libsctp1 \
+    iproute2 \
+    iptables \
+    iputils-ping \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Non-root user
+RUN groupadd -r nextgcore && useradd -r -g nextgcore -s /bin/false nextgcore
+
+# Standard directories
+RUN mkdir -p /etc/nextgcore /var/log/nextgcore /var/run/nextgcore /var/lib/nextgcore && \
+    chown -R nextgcore:nextgcore /etc/nextgcore /var/log/nextgcore /var/run/nextgcore /var/lib/nextgcore
+
+# Copy ALL NF binaries from builder
+COPY --from=binaries /out/nextgcore-* /usr/local/bin/
+RUN chmod +x /usr/local/bin/nextgcore-* && \
+    chown nextgcore:nextgcore /usr/local/bin/nextgcore-*
+
+ENV RUST_LOG=info
+
+EXPOSE 7777 38412 9090 8805/udp 2152/udp
+
+USER nextgcore
+
+# No default entrypoint - each Deployment specifies the NF binary via command
+CMD ["/bin/sh", "-c", "echo 'Specify a nextgcore-* binary via command override'; exit 1"]
