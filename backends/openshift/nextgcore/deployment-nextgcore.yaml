@@ -1,0 +1,60 @@
+# Prism NWDAF Mock Deployment (Path B fallback per D-10)
+#
+# The GO decision from Plan 02 could not be fulfilled because the NextGCore
+# images were built on ARM64 (Apple Silicon) and the OpenShift cluster runs
+# amd64 nodes. The Dockerfile.builder's cross-compilation support is incomplete
+# for the arm64-to-amd64 direction (missing cargo linker config). This Prism
+# mock provides schema-conformant NWDAF AnalyticsInfo responses as an accepted
+# alternate completion of BACK-02 per the user's discuss-phase decision (D-10).
+#
+# Future Path A attempt: fix Dockerfile.builder cross-compilation, use an
+# OpenShift BuildConfig, or build on an amd64 machine.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prism-nwdaf
+  namespace: otel25-backends
+  labels:
+    app: prism-nwdaf
+    api: nwdaf
+    path: prism-fallback
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prism-nwdaf
+  template:
+    metadata:
+      labels:
+        app: prism-nwdaf
+        api: nwdaf
+        path: prism-fallback
+    spec:
+      containers:
+      - name: prism
+        image: image-registry.openshift-image-registry.svc:5000/otel25-backends/prism-nwdaf:latest
+        ports:
+        - containerPort: 4010
+          protocol: TCP
+        env:
+        - name: NODE_ENV
+          value: "production"
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 250m
+            memory: 256Mi
+        # tcpSocket probe is safest for NWDAF AnalyticsInfo (complex 3GPP spec,
+        # POST-heavy paths; GET may return non-2xx for some query combos)
+        readinessProbe:
+          tcpSocket:
+            port: 4010
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        livenessProbe:
+          tcpSocket:
+            port: 4010
+          initialDelaySeconds: 10
+          periodSeconds: 30

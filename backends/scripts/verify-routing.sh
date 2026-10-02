@@ -50,7 +50,7 @@ for KEY in "${KEYS[@]}"; do
     TMF621_BASE_URL)    TEST_PATH="/troubleTicket" ;;
     CAMARA_BASE_URL)    TEST_PATH="/" ;;
     CAMARA_RETRIEVAL_BASE_URL) TEST_PATH="/" ;;
-    NWDAF_BASE_URL)     TEST_PATH="/nnwdaf-analyticsinfo/v1/analytics?event-id=LOAD_LEVEL_INFORMATION" ;;
+    NWDAF_BASE_URL)     TEST_PATH="/analytics?event-id=NF_LOAD" ;;
     *)                  TEST_PATH="/" ;;
   esac
 

@@ -1,0 +1,24 @@
+# NWDAF ClusterIP Service
+#
+# Service name: nextgcore-nwdaf (consistent naming for downstream consumers)
+# Port: 4010 (Prism NWDAF runs on 4010 natively in Path B)
+# If NextGCore Path A were deployed, port would be 7777 (SBI port)
+#
+# The ConfigMap backend-routing references this Service as the NWDAF_BASE_URL.
+# Phase 2/3 MCP servers consume the ConfigMap URL, not this Service directly.
+apiVersion: v1
+kind: Service
+metadata:
+  name: nextgcore-nwdaf
+  namespace: otel25-backends
+  labels:
+    app: prism-nwdaf
+    api: nwdaf
+spec:
+  selector:
+    app: prism-nwdaf
+  ports:
+  - port: 4010
+    targetPort: 4010
+    protocol: TCP
+  type: ClusterIP
