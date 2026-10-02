@@ -1,0 +1,58 @@
+# Custom SCC for NextGCore UPF container
+#
+# UPF requires privileged access for TUN/TAP interface creation and IP forwarding.
+# Per Plan 02 findings, the actual requirements are:
+#   - privileged: true (UPF docker-compose config uses privileged: true)
+#   - NET_ADMIN capability (for network configuration)
+#   - SYS_ADMIN capability (for mount operations)
+#   - /dev/net/tun device access (TUN/TAP interface)
+#   - net.ipv4.ip_forward=1 sysctl
+#
+# This SCC is ONLY applied to the nextgcore-upf ServiceAccount.
+# All other NextGCore NFs run under the default restricted-v2 SCC.
+#
+# Threat model: T-04-01 (Elevation of Privilege) - mitigated by:
+#   - Dedicated ServiceAccount (nextgcore-upf), not the default SA
+#   - UPF in separate Pod from control-plane NFs
+#   - Internal-only ClusterIP (no Route exposure)
+#   - Dev cluster (D-01)
+apiVersion: security.openshift.io/v1
+kind: SecurityContextConstraints
+metadata:
+  name: nextgcore-upf
+  annotations:
+    kubernetes.io/description: >-
+      Custom SCC for NextGCore UPF. Grants privileged access needed for
+      TUN/TAP interface creation and IP forwarding. Only bound to the
+      nextgcore-upf ServiceAccount in otel25-backends namespace.
+allowPrivilegedContainer: true
+allowHostNetwork: false
+allowHostPID: false
+allowHostIPC: false
+allowHostPorts: false
+allowHostDirVolumePlugin: true
+allowedCapabilities:
+  - NET_ADMIN
+  - NET_RAW
+  - SYS_ADMIN
+defaultAddCapabilities: []
+requiredDropCapabilities: []
+readOnlyRootFilesystem: false
+runAsUser:
+  type: RunAsAny
+seLinuxContext:
+  type: RunAsAny
+fsGroup:
+  type: RunAsAny
+supplementalGroups:
+  type: RunAsAny
+volumes:
+  - configMap
+  - downwardAPI
+  - emptyDir
+  - hostPath
+  - persistentVolumeClaim
+  - projected
+  - secret
+users:
+  - system:serviceaccount:otel25-backends:nextgcore-upf
