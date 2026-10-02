@@ -18,7 +18,7 @@
 
 ### Backends
 
-- [ ] **BACK-01**: Deploy Prism mock backends on OpenShift for TMF642, TMF628, TMF621, and CAMARA APIs from their OpenAPI specs
+- [x] **BACK-01**: Deploy Prism mock backends on OpenShift for TMF642, TMF628, TMF621, and CAMARA APIs from their OpenAPI specs
 - [x] **BACK-02**: Deploy NextGCore on OpenShift with working NWDAF endpoints for execution-verified analytics tool calls
 - [x] **BACK-03**: Configure backend routing via ConfigMap (swap between Prism mocks and live backends without code changes)
 
@@ -82,7 +82,7 @@
 | MCP-06 | Phase 2 | Pending |
 | MCP-07 | Phase 2 | Pending |
 | MCP-08 | Phase 3 | Pending |
-| BACK-01 | Phase 1 | Pending |
+| BACK-01 | Phase 1 | Complete |
 | BACK-02 | Phase 1 | Complete |
 | BACK-03 | Phase 1 | Complete |
 | SDG-01 | Phase 4 | Pending |
