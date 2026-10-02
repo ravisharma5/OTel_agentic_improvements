@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OTel 2.5 Telecom Tool-Calling Training — System Overview</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --panel-2: #1e222b;
+    --border: #2a2f3a;
+    --text: #e6e8ec;
+    --text-dim: #9aa1ad;
+    --accent: #5b8def;
+    --accent-dim: #233a5e;
+    --live: #4caf8a;
+    --live-dim: #16302a;
+    --building: #e0a640;
+    --building-dim: #4a3a1a;
+    --planned: #8d93a3;
+    --planned-dim: #2a2d33;
+    --external: #b07cd6;
+    --external-dim: #2f2140;
+    --radius: 12px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+  }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 48px 28px 90px; }
+  .eyebrow {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--text-dim); margin-bottom: 10px;
+  }
+  h1 { font-size: 2rem; font-weight: 600; letter-spacing: -0.01em; margin: 0 0 14px; }
+  .lead { font-size: 1.02rem; color: var(--text-dim); max-width: 720px; margin-bottom: 28px; }
+  .legend {
+    display: flex; gap: 18px; flex-wrap: wrap;
+    padding: 14px 18px; background: var(--panel); border: 1px solid var(--border);
+    border-radius: var(--radius); margin-bottom: 48px;
+  }
+  .legend-item { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--text-dim); }
+  .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+
+  section { margin-top: 56px; }
+  .section-head { margin-bottom: 24px; }
+  .section-head .kicker {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--accent); margin-bottom: 6px;
+  }
+  .section-head h2 { font-size: 1.4rem; margin: 0 0 8px; font-weight: 600; }
+  .section-head p { color: var(--text-dim); font-size: 0.95rem; max-width: 680px; margin: 0; }
+
+  .stage {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 18px 20px;
+    margin-bottom: 4px;
+  }
+  .stage-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 6px; }
+  .stage-num {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11px; color: var(--text-dim); border: 1px solid var(--border);
+    border-radius: 100px; padding: 1px 8px;
+  }
+  .stage-head h3 { font-size: 1.02rem; margin: 0; font-weight: 600; }
+  .stage-desc { color: var(--text-dim); font-size: 0.9rem; margin: 0 0 12px; }
+
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
+  .tile {
+    background: var(--panel-2); border: 1px solid var(--border); border-radius: 9px;
+    padding: 11px 13px; cursor: pointer; transition: border-color 0.15s;
+  }
+  .tile:hover { border-color: var(--text-dim); }
+  .tile.open { border-color: var(--accent); }
+  .tile-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .tile-name { font-size: 0.88rem; font-weight: 600; }
+  .tile-sub { font-size: 0.78rem; color: var(--text-dim); margin-top: 2px; }
+  .tile-detail {
+    display: none; font-size: 0.82rem; color: var(--text-dim);
+    margin-top: 9px; padding-top: 9px; border-top: 1px solid var(--border); line-height: 1.5;
+  }
+  .tile.open .tile-detail { display: block; }
+  .status-chip {
+    font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.05em;
+    padding: 2px 7px; border-radius: 100px; white-space: nowrap; flex-shrink: 0;
+  }
+
+  .flow-arrow {
+    text-align: center; color: var(--text-dim); font-size: 22px; line-height: 1;
+    margin: 10px 0; animation: pulse 2.2s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%, 100% { opacity: 0.35; } 50% { opacity: 0.9; } }
+
+  .return-note {
+    margin-top: 14px; padding: 12px 16px; background: var(--panel-2);
+    border: 1px dashed var(--border); border-radius: 9px; font-size: 0.86rem; color: var(--text-dim);
+  }
+  .return-note b { color: var(--text); }
+
+  .callout {
+    background: var(--external-dim); border: 1px solid var(--external);
+    border-radius: var(--radius); padding: 16px 20px; font-size: 0.9rem;
+    color: var(--text); margin-bottom: 24px; line-height: 1.6;
+  }
+  .callout b { color: var(--external); }
+
+  .loop-note {
+    margin-top: 20px; padding: 14px 18px; background: var(--accent-dim);
+    border-radius: var(--radius); font-size: 0.9rem; color: var(--text); text-align: center;
+  }
+
+  footer {
+    margin-top: 64px; padding-top: 24px; border-top: 1px solid var(--border);
+    color: var(--text-dim); font-size: 12px; line-height: 1.7;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="eyebrow">LFN Applied Observability for AIOps Working Group</div>
+  <h1>OTel 2.5 Telecom Tool-Calling Training — System Overview</h1>
+  <div class="lead">
+    How a NOC engineer's fault investigation flows through OTel 2.5 once it's trained (<b>Production Flow</b>),
+    and how we're actually producing the training data that teaches it to do this (<b>Training Flow</b>) —
+    starting with the fault-prediction use case. Click any component for what it does.
+  </div>
+
+  <div class="legend">
+    <div class="legend-item"><span class="dot" style="background:var(--live)"></span> Live now — Phase 1 shipped</div>
+    <div class="legend-item"><span class="dot" style="background:var(--building)"></span> Building now — Phase 2–3</div>
+    <div class="legend-item"><span class="dot" style="background:var(--planned)"></span> Planned — Phase 4</div>
+    <div class="legend-item"><span class="dot" style="background:var(--external)"></span> Owned by Farbod's team — not our scope</div>
+  </div>
+
+  <section>
+    <div class="section-head">
+      <div class="kicker">Flow 1 — The end goal</div>
+      <h2>Production Flow: a NOC engineer investigates a fault</h2>
+      <p>This is what OTel 2.5 will do once trained — the six-step investigation sequence a human NOC engineer follows today, mapped to the telecom APIs OTel 2.5 will call to do it autonomously.</p>
+    </div>
+
+    <div class="stage">
+      <div class="stage-head"><span class="stage-num">1</span><h3>NOC Engineer / Operator</h3></div>
+      <div class="stage-desc">Notices or is alerted to a potential network fault. Asks — or an autonomous monitoring loop triggers — OTel 2.5 to investigate.</div>
+    </div>
+    <div class="flow-arrow">↓</div>
+
+    <div class="stage">
+      <div class="stage-head"><span class="stage-num">2</span><h3>OTel 2.5 (the AI agent)</h3></div>
+      <div class="stage-desc">31B-param model, deeply trained on telecom standards. Decides which tools to call and in what order to diagnose the fault. <i>This is the model this whole project exists to train — see Flow 2 below.</i></div>
+    </div>
+    <div class="flow-arrow">↓</div>
+
+    <div class="stage">
+      <div class="stage-head"><span class="stage-num">3</span><h3>MCP Gateway</h3> <span class="status-chip" style="background:var(--building-dim); color:var(--building)">Phase 3</span></div>
+      <div class="stage-desc">Single entry point (Kuadrant) composing every tool server below with namespacing — OTel 2.5 sees one unified toolset instead of juggling separate connections.</div>
+    </div>
+    <div class="flow-arrow">↓</div>
+
+    <div class="stage">
+      <div class="stage-head"><span class="stage-num">4</span><h3>Tool servers — one per telecom domain</h3></div>
+      <div class="stage-desc">Each tile below is a step in the investigation. Click one to see exactly what it does.</div>
+      <div class="tiles">
+        <div class="tile" data-detail="d1">
+          <div class="tile-top"><span class="tile-name">TMF642 — Alarm Mgmt</span><span class="status-chip" style="background:var(--building-dim); color:var(--building)">Phase 3</span></div>
+          <div class="tile-sub">Step: check active alarms</div>
+          <div class="tile-detail" id="d1">List, get, acknowledge, clear, and subscribe to network alarms. This is usually the first thing a NOC engineer checks — "what's currently raised, and how severe?"</div>
+        </div>
+        <div class="tile" data-detail="d2">
+          <div class="tile-top"><span class="tile-name">TMF628 — Performance Mgmt</span><span class="status-chip" style="background:var(--building-dim); color:var(--building)">Phase 3</span></div>
+          <div class="tile-sub">Step: pull KPI data</div>
+          <div class="tile-detail" id="d2">Pulls performance/KPI measurements for the network elements an alarm points at — is throughput down, latency up, errors spiking?</div>
+        </div>
+        <div class="tile" data-detail="d3">
+          <div class="tile-top"><span class="tile-name">NWDAF — Predictive Analytics</span><span class="status-chip" style="background:var(--live-dim); color:var(--live)">Live (backend)</span></div>
+          <div class="tile-sub">Step: query 5G core predictions</div>
+          <div class="tile-detail" id="d3">Queries the 5G core's own built-in analytics (TS 29.520) — abnormal behavior, load level, congestion — the "is this about to get worse" signal. The live NextGCore backend for this is already running on OpenShift (Phase 1); the MCP tool wrapper around it is Phase 3.</div>
+        </div>
+        <div class="tile" data-detail="d4">
+          <div class="tile-top"><span class="tile-name">CAMARA — Device Location</span><span class="status-chip" style="background:var(--live-dim); color:var(--live)">Live (backend)</span></div>
+          <div class="tile-sub">Step: check affected devices</div>
+          <div class="tile-detail" id="d4">Checks whether affected devices/subscribers are connected and where — useful for scoping blast radius and ruling out device-side causes. Mock backends for this are already running on OpenShift (Phase 1).</div>
+        </div>
+        <div class="tile" data-detail="d5">
+          <div class="tile-top"><span class="tile-name">MCP-Telecom — Device Layer</span><span class="status-chip" style="background:var(--building-dim); color:var(--building)">Phase 2</span></div>
+          <div class="tile-sub">Step: root-cause correlation</div>
+          <div class="tile-detail" id="d5">60+ existing tools (MIT-licensed, reused not rebuilt) for direct router/switch queries — interface status, CPU, memory, routing tables — correlating the alarm with what's actually happening on the physical/virtual infrastructure.</div>
+        </div>
+        <div class="tile" data-detail="d6">
+          <div class="tile-top"><span class="tile-name">TMF621 — Trouble Ticket</span><span class="status-chip" style="background:var(--building-dim); color:var(--building)">Phase 3</span></div>
+          <div class="tile-sub">Step: act on the diagnosis</div>
+          <div class="tile-detail" id="d6">Creates or updates a trouble ticket with everything gathered above as correlated evidence — alarms, KPIs, predictions, affected devices — the final step before handing off to resolution (or, for the closed-loop-automation use case down the roadmap, triggering automated remediation directly).</div>
+        </div>
+      </div>
+    </div>
+    <div class="flow-arrow">↓</div>
+
+    <div class="stage">
+      <div class="stage-head"><span class="stage-num">5</span><h3>Backends — something real for every tool call to hit</h3></div>
+      <div class="stage-desc">Every tool above needs a backend to actually respond. Phase 1 (shipped) deployed both kinds on OpenShift:</div>
+      <div class="tiles">
+        <div class="tile" data-detail="d7">
+          <div class="tile-top"><span class="tile-name">Prism mocks</span><span class="status-chip" style="background:var(--live-dim); color:var(--live)">Live now</span></div>
+          <div class="tile-sub">TMF642 / TMF628 / TMF621 / CAMARA ×2</div>
+          <div class="tile-detail" id="d7">Auto-generates schema-valid mock responses from each API's OpenAPI spec — used because TM Forum APIs have no public live backend to test against. 5 instances running on OpenShift today.</div>
+        </div>
+        <div class="tile" data-detail="d8">
+          <div class="tile-top"><span class="tile-name">NextGCore</span><span class="status-chip" style="background:var(--live-dim); color:var(--live)">Live now</span></div>
+          <div class="tile-sub">Real 5G core, not a mock</div>
+          <div class="tile-detail" id="d8">A genuine running 5G core (9 network functions — AMF, SMF, UPF, NRF, AUSF, UDM, UDR, MongoDB, NWDAF) with ONNX-backed analytics, deployed on OpenShift. NWDAF responses are real, not faked — this matters because fake analytics data would teach the model to expect nonsense.</div>
+        </div>
+      </div>
+      <div class="return-note">Which backend answers each call is controlled by a <b>ConfigMap</b> — mock and live can be swapped per-API without touching any code, so the same tool definitions work whether the backend behind them is a Prism mock or a real system.</div>
+    </div>
+    <div class="flow-arrow">↓</div>
+
+    <div class="stage">
+      <div class="stage-head"><span class="stage-num">6</span><h3>The telecom network</h3></div>
+      <div class="stage-desc">What all of this ultimately stands in for: an operator's real OSS/BSS systems, 5G core, and device/infrastructure layer.</div>
+    </div>
+
+    <div class="loop-note">↑ Correlated diagnosis and action flow back to the NOC engineer — or, for future use cases, trigger closed-loop automation directly.</div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <div class="kicker">Flow 2 — What this project actually delivers</div>
+      <h2>Training Flow: how OTel 2.5 gets built</h2>
+      <p>OTel 2.5 doesn't exist yet as a deployed agent. This project's real deliverable is the training dataset and pipeline that teaches OTel 2.0 how to do everything in Flow 1 above.</p>
+    </div>
+
+    <div class="callout">
+      <b>Why this flow exists:</b> OTel 2.0 already has deep telecom domain knowledge (31B params, ~440B telecom tokens of pretraining) but zero examples of actually calling telecom tools. This project builds that missing tool-calling training data — reusing the exact same MCP tools and backends shown in Flow 1.
+    </div>
+
+    <div class="stage">
+      <div class="stage-head"><span class="stage-num">1</span><h3>Teacher model</h3> <span class="status-chip" style="background:var(--planned-dim); color:var(--planned)">Phase 4</span></div>
+      <div class="stage-desc">A strong general-purpose LLM exercises the same MCP tools and backends from Flow 1 to generate candidate tool-calling conversations for the fault-prediction workflow.</div>
+    </div>
+    <div class="flow-arrow">↓</div>
+
+    <div class="stage">
+      <div class="stage-head"><span class="stage-num">2</span><h3>Execution verification</h3> <span class="status-chip" style="background:var(--planned-dim); color:var(--planned)">Phase 4</span></div>
+      <div class="stage-desc">Every generated tool call actually runs against the real mock/live backend from Phase 1 — catching hallucinated parameters that a format-only check would miss. ~60-75% of parameter errors are caught this way.</div>
+    </div>
+    <div class="flow-arrow">↓</div>
+
+    <div class="stage">
+      <div class="stage-head"><span class="stage-num">3</span><h3>SDG pipeline (sdg_hub)</h3> <span class="status-chip" style="background:var(--planned-dim); color:var(--planned)">Phase 4</span></div>
+      <div class="stage-desc">Orders examples by curriculum — single-tool → parallel → sequential → multi-turn → full closed-loop — and outputs both single-turn and multi-turn trajectory formats.</div>
+    </div>
+    <div class="flow-arrow">↓</div>
+
+    <div class="stage">
+      <div class="stage-head"><span class="stage-num">4</span><h3>Quality filter</h3> <span class="status-chip" style="background:var(--planned-dim); color:var(--planned)">Phase 4</span></div>
+      <div class="stage-desc">8,500–14,000 raw generated examples filtered down to 5,000–10,000 high-quality, execution-verified training examples.</div>
+    </div>
+    <div class="flow-arrow">↓</div>
+
+    <div class="stage">
+      <div class="stage-head"><span class="stage-num">5</span><h3>Farbod's team (OpenTelco)</h3> <span class="status-chip" style="background:var(--external-dim); color:var(--external)">Not our scope</span></div>
+      <div class="stage-desc">Runs OSFT — the actual fine-tuning — on OTel 2.0 using the delivered dataset. This project delivers data + pipeline only; training and evaluation belong to Farbod's team.</div>
+    </div>
+    <div class="flow-arrow">↓</div>
+
+    <div class="stage" style="border-color: var(--accent);">
+      <div class="stage-head"><span class="stage-num">→</span><h3>OTel 2.5</h3></div>
+      <div class="stage-desc">The fine-tuned model — which becomes the AI agent at the top of Flow 1. The loop closes.</div>
+    </div>
+  </section>
+
+  <footer>
+    Fault prediction is the first of 5 target use cases for this Working Group — the same MCP tool + backend + SDG pipeline architecture is designed to extend to churn prediction, revenue recovery, energy optimization, and closed-loop automation.
+    <br><br>
+    Snapshot as of 2026-10-02. Phase 1 (backends) is shipped and verified against a live OpenShift cluster; Phases 2–5 (MCP tool servers, gateway, SDG pipeline, industry gaps doc) are planned. See <code>.planning/PROJECT.md</code> and <code>.planning/ROADMAP.md</code> for current status.
+  </footer>
+
+</div>
+
+<script>
+document.querySelectorAll(".tile[data-detail]").forEach(tile => {
+  tile.addEventListener("click", () => tile.classList.toggle("open"));
+});
+</script>
+</body>
+</html>

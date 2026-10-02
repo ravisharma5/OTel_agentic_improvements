@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Phase 1 — Backend Infrastructure Architecture</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --panel-2: #1e222b;
+    --border: #2a2f3a;
+    --text: #e6e8ec;
+    --text-dim: #9aa1ad;
+    --mock: #5b8def;
+    --mock-dim: #233a5e;
+    --live: #e0a640;
+    --live-dim: #4a3a1a;
+    --infra: #8d93a3;
+    --infra-dim: #2a2d33;
+    --ok: #4caf8a;
+    --line: #3a4150;
+    --line-bright: #5a6478;
+    --radius: 10px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+  }
+  header {
+    padding: 28px 32px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  header h1 {
+    margin: 0 0 6px;
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  header .sub {
+    color: var(--text-dim);
+    font-size: 13px;
+    line-height: 1.6;
+  }
+  .legend {
+    display: flex;
+    gap: 20px;
+    margin-top: 14px;
+    flex-wrap: wrap;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 12.5px;
+    color: var(--text-dim);
+  }
+  .swatch {
+    width: 11px; height: 11px; border-radius: 3px; display: inline-block;
+  }
+  .layout {
+    display: grid;
+    grid-template-columns: 1fr 340px;
+    align-items: start;
+  }
+  main {
+    padding: 28px 32px 40px;
+    overflow-x: auto;
+  }
+  #canvas-wrap {
+    position: relative;
+    width: 1180px;
+    height: 900px;
+  }
+  #canvas-svg {
+    position: absolute;
+    top: 0; left: 0;
+    width: 1180px;
+    height: 900px;
+    pointer-events: none;
+  }
+  .mesh-boundary {
+    position: absolute;
+    border: 1px dashed var(--line);
+    border-radius: 14px;
+    background: rgba(255,255,255,0.012);
+  }
+  .mesh-boundary .mesh-label {
+    position: absolute;
+    top: -11px;
+    left: 18px;
+    background: var(--bg);
+    padding: 0 8px;
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-dim);
+  }
+  .node {
+    position: absolute;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 9px 12px;
+    cursor: pointer;
+    transition: border-color 0.15s, transform 0.1s, background 0.15s;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+  .node:hover { border-color: var(--text-dim); transform: translateY(-1px); z-index: 5; }
+  .node.selected { background: var(--panel-2); border-color: var(--text); z-index: 6; }
+  .node .name { font-size: 12.5px; font-weight: 600; line-height: 1.3; }
+  .node .meta { font-size: 10.5px; color: var(--text-dim); margin-top: 2px; }
+  .node .status-dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; margin-right: 5px; background: var(--ok); }
+  .node.mock { border-left: 3px solid var(--mock); }
+  .node.live { border-left: 3px solid var(--live); }
+  .node.infra { border-left: 3px solid var(--infra); }
+  .node.config { border-left: 3px solid var(--text-dim); }
+  .node.hub { border-radius: 50%; align-items: center; text-align: center; }
+
+  aside {
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    border-left: 1px solid var(--border);
+    background: var(--panel);
+    padding: 28px 24px;
+    overflow-y: auto;
+  }
+  aside h2 { font-size: 15px; margin: 0 0 4px; }
+  aside .tag {
+    display: inline-block;
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    padding: 2px 8px;
+    border-radius: 100px;
+    margin-bottom: 14px;
+  }
+  aside .tag.mock { background: var(--mock-dim); color: var(--mock); }
+  aside .tag.live { background: var(--live-dim); color: var(--live); }
+  aside .tag.infra { background: var(--infra-dim); color: var(--infra); }
+  aside dl { margin: 0; font-size: 12.5px; }
+  aside dt { color: var(--text-dim); margin-top: 12px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; }
+  aside dd { margin: 4px 0 0; line-height: 1.5; word-break: break-word; }
+  aside dd.mono {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11.5px;
+    background: var(--panel-2);
+    padding: 6px 8px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+  }
+  aside .empty { color: var(--text-dim); font-size: 13px; line-height: 1.6; }
+
+  footer {
+    padding: 18px 32px 28px;
+    color: var(--text-dim);
+    font-size: 11.5px;
+    border-top: 1px solid var(--border);
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Phase 1 — Backend Infrastructure</h1>
+  <div class="sub">
+    OTel 2.5 Telecom Tool-Calling Training &middot; OpenShift namespace <code>otel25-backends</code> &middot;
+    Snapshot of live cluster state &middot; animated lines show request/registration flow &middot; click any node for details
+  </div>
+  <div class="legend">
+    <div class="legend-item"><span class="swatch" style="background:var(--mock)"></span> Mock backend (Prism)</div>
+    <div class="legend-item"><span class="swatch" style="background:var(--live)"></span> Live backend (NextGCore)</div>
+    <div class="legend-item"><span class="swatch" style="background:var(--infra)"></span> Supporting NF / infra</div>
+    <div class="legend-item"><span class="swatch" style="background:var(--text-dim)"></span> Routing config</div>
+    <div class="legend-item"><span class="status-dot" style="background:var(--ok)"></span> Running</div>
+  </div>
+</header>
+
+<div class="layout">
+  <main>
+    <div id="canvas-wrap">
+      <svg id="canvas-svg" viewBox="0 0 1180 900">
+        <defs>
+          <marker id="arrow-mock" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="#5b8def"/>
+          </marker>
+          <marker id="arrow-live" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="#e0a640"/>
+          </marker>
+          <marker id="arrow-infra" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="#8d93a3"/>
+          </marker>
+        </defs>
+        <g id="edge-layer"></g>
+      </svg>
+      <div class="mesh-boundary" id="mesh-boundary" style="left:20px; top:300px; width:1140px; height:540px;">
+        <span class="mesh-label">NextGCore 5G core mesh — 9 pods, single shared image <code>nextgcore-runtime:latest</code> (except MongoDB), built in-cluster via OpenShift BuildConfig on amd64. All NFs register with NRF on startup.</span>
+      </div>
+      <div id="node-layer"></div>
+    </div>
+  </main>
+
+  <aside id="detail-panel">
+    <div class="empty">Click a component to see its details — image, port, status, and what it's for. Animated dots on the lines show the direction of traffic: routing resolution (ConfigMap → backend) and NF registration (NF → NRF).</div>
+  </aside>
+</div>
+
+<footer>
+  Generated from live <code>oc get pods / svc / configmap</code> output, 2026-10-02. Not a live-polling dashboard — re-run the GSD executor or refresh this file manually to reflect cluster changes.
+  Backend-routing contract, Prism-vs-NextGCore split, and no-redeploy switching behavior per CONTEXT.md decisions D-04 through D-16 (see <code>.planning/phases/01-backend-infrastructure/01-CONTEXT.md</code>).
+</footer>
+
+<script>
+const configmapData = {
+  "TMF642_BASE_URL": "http://prism-tmf642.otel25-backends.svc.cluster.local:4010",
+  "TMF628_BASE_URL": "http://prism-tmf628.otel25-backends.svc.cluster.local:4010",
+  "TMF621_BASE_URL": "http://prism-tmf621.otel25-backends.svc.cluster.local:4010",
+  "CAMARA_BASE_URL": "http://prism-camara.otel25-backends.svc.cluster.local:4010",
+  "CAMARA_RETRIEVAL_BASE_URL": "http://prism-camara-retrieval.otel25-backends.svc.cluster.local:4010",
+  "NWDAF_BASE_URL": "http://nextgcore-nwdaf.otel25-backends.svc.cluster.local:7777"
+};
+
+// x,y = center point. w,h = box size.
+const nodes = [
+  { id: "configmap", name: "backend-routing ConfigMap", meta: "6 keys · routing layer", type: "config",
+    x: 590, y: 55, w: 300, h: 56,
+    detail: {
+      purpose: "Per-API base URL routing (CONTEXT.md D-14/D-15) — one key per backend, no routing proxy/gateway service.",
+      critical_contract: "Only mounted-file consumption satisfies \"switch without redeploying\" (ROADMAP success criterion #3). Env-var consumption requires a pod restart and does NOT satisfy this contract — documented explicitly after the cross-AI review caught this gap.",
+      verified: "Phase 1 verification patched a key live and confirmed the change was visible with zero pod restarts.",
+      keys: Object.keys(configmapData).join(", ")
+    }
+  },
+
+  { id: "prism-tmf642", name: "prism-tmf642", meta: "TMF642 Alarm · :4010", type: "mock", x: 90, y: 195, w: 140, h: 54,
+    detail: { purpose: "Mocks TMF642 Alarm Management v5.0.1 (OAS 3.0). Dynamic schema-based response generation.", spec: "backends/specs/tmf642_alarm_v5.0.1.oas.yaml", image: "prism-tmf642:latest (parameterized Prism image)", probe: "GET /alarm, httpGet probe", status: "Running, 1/1" } },
+  { id: "prism-tmf628", name: "prism-tmf628", meta: "TMF628 Perf · :4010", type: "mock", x: 260, y: 195, w: 140, h: 54,
+    detail: { purpose: "Mocks TMF628 Performance Management v4.0.0 — Swagger 2.0, mocked as-is.", spec: "backends/specs/tmf628_performance_v4.0.0.swagger.json", image: "prism-tmf628:latest", probe: "GET /measurementCollectionJob, httpGet probe", status: "Running, 1/1" } },
+  { id: "prism-tmf621", name: "prism-tmf621", meta: "TMF621 Ticket · :4010", type: "mock", x: 430, y: 195, w: 140, h: 54,
+    detail: { purpose: "Mocks TMF621 Trouble Ticket v5.0.1 (OAS 3.0).", spec: "backends/specs/tmf621_troubleticket_v5.0.1.oas.yaml", image: "prism-tmf621:latest", probe: "GET /troubleTicket, httpGet probe", status: "Running, 1/1" } },
+  { id: "prism-camara", name: "prism-camara", meta: "CAMARA Verify · :4010", type: "mock", x: 600, y: 195, w: 150, h: 54,
+    detail: { purpose: "Mocks CAMARA Device Location — verify-location. POST-heavy spec, no safe GET health path.", spec: "backends/specs/camara_location_verification.yaml", image: "prism-camara:latest", probe: "tcpSocket probe (not httpGet)", status: "Running, 1/1" } },
+  { id: "prism-camara-retrieval", name: "prism-camara-retrieval", meta: "CAMARA Retrieve · :4010", type: "mock", x: 800, y: 195, w: 170, h: 54,
+    detail: { purpose: "Added during the cross-AI review revision — only verify-location was originally served; retrieve-location is also required by the fault-prediction tool list, so a 5th Prism deployment was added.", spec: "backends/specs/camara_location_retrieval.yaml", image: "prism-camara-retrieval:latest", probe: "tcpSocket probe", status: "Running, 1/1" } },
+  { id: "nextgcore-nwdaf-svc", name: "nextgcore-nwdaf (Service)", meta: "NWDAF analytics · :7777 h2c", type: "live", x: 1020, y: 195, w: 180, h: 54,
+    detail: { purpose: "Real NextGCore NWDAF — not a mock. Deployed after the initial GO decision hit a cross-compilation failure (ARM64 Mac → amd64 cluster) and was retried via an in-cluster OpenShift BuildConfig.", note: "Returns HTTP 204 (spec-valid, data-empty) for NF_LOAD because nextgsim (UE/PDU traffic simulator) is not deployed to this cluster yet — tracked as a Phase 4 follow-up.", image: "nextgcore-runtime:latest (built in-cluster)", probe: "HTTP/2 analytics endpoint, port 7777", status: "Running, 1/1" } },
+
+  { id: "nrf", name: "NRF", meta: "Registry hub", type: "infra hub", x: 590, y: 400, w: 86, h: 86,
+    detail: { purpose: "Network Repository Function — service registry. Every other NF registers with NRF on startup; this is the hub of the mesh.", image: "nextgcore-runtime:latest", port: "7777", status: "Running, 1/1 (started first)" } },
+
+  { id: "amf", name: "amf", meta: "Access Mgmt", type: "infra", x: 140, y: 560, w: 120, h: 50,
+    detail: { purpose: "Access and Mobility Management Function. Only NF with an exec-based readiness probe — SBI binds to 127.0.0.1 in dev mode, so a tcpSocket probe fails here specifically; verified via testing not needed for any other NF.", image: "nextgcore-runtime:latest", port: "7777, 38412", status: "Running, 1/1" } },
+  { id: "smf", name: "smf", meta: "Session Mgmt", type: "infra", x: 300, y: 560, w: 120, h: 50,
+    detail: { purpose: "Session Management Function — PDU session establishment.", image: "nextgcore-runtime:latest", port: "7777", status: "Running, 1/1" } },
+  { id: "upf", name: "upf", meta: "User Plane", type: "infra", x: 460, y: 560, w: 120, h: 50,
+    detail: { purpose: "User Plane Function. Requires a custom SCC: privileged + NET_ADMIN + SYS_ADMIN + /dev/net/tun — the only NF with elevated privileges.", image: "nextgcore-runtime:latest", port: "8805/UDP, 2152/UDP", status: "Running, 1/1" } },
+  { id: "ausf", name: "ausf", meta: "Auth Function", type: "infra", x: 720, y: 560, w: 120, h: 50,
+    detail: { purpose: "Authentication Server Function.", image: "nextgcore-runtime:latest", port: "7777", status: "Running, 1/1" } },
+
+  { id: "udm", name: "udm", meta: "Subscriber Data", type: "infra", x: 880, y: 700, w: 120, h: 50,
+    detail: { purpose: "Unified Data Management. Code-review finding CR-01: this Service was missing initially (Deployment existed, no matching Service — unlike every other NF). Fixed and DNS-verified in-cluster.", image: "nextgcore-runtime:latest", port: "7777", status: "Running, 1/1 (Service added in review fix)" } },
+  { id: "udr", name: "udr", meta: "Subscriber Repo", type: "infra", x: 1020, y: 700, w: 120, h: 50,
+    detail: { purpose: "Unified Data Repository. Same CR-01 fix as UDM — missing Service added and DNS-verified.", image: "nextgcore-runtime:latest", port: "7777", status: "Running, 1/1 (Service added in review fix)" } },
+  { id: "mongodb", name: "mongodb", meta: "Subscriber store", type: "infra", x: 740, y: 700, w: 120, h: 50,
+    detail: { purpose: "Backing data store for subscriber data (UDR/UDM).", image: "docker.io/library/mongo:6.0", port: "27017", status: "Running, 1/1" } },
+  { id: "nwdaf-pod", name: "nwdaf (pod)", meta: "Analytics NF", type: "live", x: 460, y: 700, w: 120, h: 50,
+    detail: { purpose: "The actual NWDAF pod behind the nextgcore-nwdaf Service above. Confirmed registered with NRF in live logs.", image: "nextgcore-runtime:latest", port: "7777", status: "Running, 1/1" } },
+];
+
+// Edges: {from, to, kind: 'mock'|'live'|'infra', dir: 'down'|'up'}
+const edges = [
+  { from: "configmap", to: "prism-tmf642", kind: "mock" },
+  { from: "configmap", to: "prism-tmf628", kind: "mock" },
+  { from: "configmap", to: "prism-tmf621", kind: "mock" },
+  { from: "configmap", to: "prism-camara", kind: "mock" },
+  { from: "configmap", to: "prism-camara-retrieval", kind: "mock" },
+  { from: "configmap", to: "nextgcore-nwdaf-svc", kind: "live" },
+  { from: "nextgcore-nwdaf-svc", to: "nwdaf-pod", kind: "live" },
+  { from: "amf", to: "nrf", kind: "infra" },
+  { from: "smf", to: "nrf", kind: "infra" },
+  { from: "upf", to: "nrf", kind: "infra" },
+  { from: "ausf", to: "nrf", kind: "infra" },
+  { from: "udm", to: "nrf", kind: "infra" },
+  { from: "udr", to: "nrf", kind: "infra" },
+  { from: "nwdaf-pod", to: "nrf", kind: "infra" },
+  { from: "mongodb", to: "udr", kind: "infra" },
+  { from: "mongodb", to: "udm", kind: "infra" },
+];
+
+const byId = Object.fromEntries(nodes.map(n => [n.id, n]));
+
+function rectEdgePoint(from, to) {
+  // Point where the line from `from`.center to `to`.center crosses `from`'s box boundary.
+  const dx = to.x - from.x, dy = to.y - from.y;
+  const hw = from.w / 2, hh = from.h / 2;
+  if (dx === 0 && dy === 0) return { x: from.x, y: from.y };
+  const scaleX = dx !== 0 ? hw / Math.abs(dx) : Infinity;
+  const scaleY = dy !== 0 ? hh / Math.abs(dy) : Infinity;
+  const scale = Math.min(scaleX, scaleY);
+  return { x: from.x + dx * scale, y: from.y + dy * scale };
+}
+
+function renderNodes() {
+  const layer = document.getElementById("node-layer");
+  nodes.forEach(n => {
+    const el = document.createElement("div");
+    const typeClass = n.type.replace(" hub", " hub"); // keep "infra hub" as two classes
+    el.className = `node ${typeClass}`;
+    el.id = `node-${n.id}`;
+    el.style.left = (n.x - n.w / 2) + "px";
+    el.style.top = (n.y - n.h / 2) + "px";
+    el.style.width = n.w + "px";
+    el.style.height = n.h + "px";
+    const dot = n.id === "configmap" ? "" : `<span class="status-dot"></span>`;
+    el.innerHTML = `<div class="name">${dot}${n.name}</div><div class="meta">${n.meta}</div>`;
+    el.addEventListener("click", () => selectNode(el, n));
+    layer.appendChild(el);
+  });
+}
+
+function renderEdges() {
+  const svgNS = "http://www.w3.org/2000/svg";
+  const layer = document.getElementById("edge-layer");
+  const colors = { mock: "#5b8def", live: "#e0a640", infra: "#5a6478" };
+  edges.forEach((e, i) => {
+    const from = byId[e.from], to = byId[e.to];
+    const p1 = rectEdgePoint(from, to);
+    const p2 = rectEdgePoint(to, from);
+    const pathId = `edge-path-${i}`;
+    const path = document.createElementNS(svgNS, "path");
+    path.setAttribute("id", pathId);
+    path.setAttribute("d", `M ${p1.x},${p1.y} L ${p2.x},${p2.y}`);
+    path.setAttribute("stroke", colors[e.kind]);
+    path.setAttribute("stroke-width", e.kind === "infra" ? "1.2" : "1.6");
+    path.setAttribute("fill", "none");
+    path.setAttribute("opacity", e.kind === "infra" ? "0.45" : "0.65");
+    path.setAttribute("marker-end", `url(#arrow-${e.kind})`);
+    layer.appendChild(path);
+
+    // Animated flow dot travelling along the path, direction = from -> to
+    const dot = document.createElementNS(svgNS, "circle");
+    dot.setAttribute("r", e.kind === "infra" ? "2.2" : "3");
+    dot.setAttribute("fill", colors[e.kind]);
+    const anim = document.createElementNS(svgNS, "animateMotion");
+    anim.setAttribute("dur", (2.2 + (i % 5) * 0.4).toFixed(1) + "s");
+    anim.setAttribute("repeatCount", "indefinite");
+    anim.setAttribute("rotate", "auto");
+    const mpath = document.createElementNS(svgNS, "mpath");
+    mpath.setAttributeNS("http://www.w3.org/1999/xlink", "href", `#${pathId}`);
+    mpath.setAttribute("href", `#${pathId}`);
+    anim.appendChild(mpath);
+    dot.appendChild(anim);
+    layer.appendChild(dot);
+  });
+}
+
+function clearSelection() {
+  document.querySelectorAll(".node").forEach(n => n.classList.remove("selected"));
+}
+
+function selectNode(el, n) {
+  clearSelection();
+  el.classList.add("selected");
+  const panel = document.getElementById("detail-panel");
+  const typeKey = n.type.includes("live") ? "live" : n.type.includes("mock") ? "mock" : n.id === "configmap" ? "infra" : "infra";
+  const tagLabel = n.id === "configmap" ? "Routing config" : n.type.includes("mock") ? "Mock backend" : n.type.includes("live") ? "Live backend" : "Supporting NF / infra";
+  let rows = "";
+  for (const [k, v] of Object.entries(n.detail)) {
+    const label = k.charAt(0).toUpperCase() + k.slice(1).replace(/_/g, " ");
+    const mono = (k === "spec" || k === "image" || k === "probe" || k === "keys" || k === "port");
+    rows += `<dt>${label}</dt><dd class="${mono ? 'mono' : ''}">${v}</dd>`;
+  }
+  panel.innerHTML = `<span class="tag ${typeKey}">${tagLabel}</span><h2>${n.name}</h2><dl>${rows}</dl>`;
+}
+
+renderEdges();
+renderNodes();
+</script>
+
+</body>
+</html>
