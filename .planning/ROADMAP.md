@@ -32,13 +32,13 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. NextGCore is running on OpenShift with NWDAF endpoints responding to TS 29.520 analytics requests
   3. Backend routing ConfigMap allows switching any MCP tool between Prism mock and live backend without redeploying services
 
-**Plans:** 4 plans
+**Plans:** 2/4 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 01-01-PLAN.md -- Vendor OpenAPI specs, create Prism Dockerfile and validation scripts
-- [ ] 01-02-PLAN.md -- NextGCore NWDAF local validation with Podman (go/no-go decision)
+- [x] 01-01-PLAN.md -- Vendor OpenAPI specs, create Prism Dockerfile and validation scripts
+- [x] 01-02-PLAN.md -- NextGCore NWDAF local validation with Podman (go/no-go decision)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -127,7 +127,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4. Phase 5 runs in parallel.
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Backend Infrastructure | 0/4 | Planning complete | - |
+| 1. Backend Infrastructure | 2/4 | In Progress|  |
 | 2. MCP Tooling Foundation | 0/2 | Not started | - |
 | 3. MCP Domain Servers and Gateway | 0/3 | Not started | - |
 | 4. SDG Pipeline and Dataset Production | 0/3 | Not started | - |
