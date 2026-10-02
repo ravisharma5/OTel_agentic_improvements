@@ -332,6 +332,23 @@ spec:
             name: nextgcore-configs
         - name: logs
           emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: udm
+  namespace: otel25-backends
+  labels:
+    app.kubernetes.io/name: udm
+    app.kubernetes.io/part-of: nextgcore
+spec:
+  selector:
+    app.kubernetes.io/name: udm
+  ports:
+    - name: sbi
+      port: 7777
+      targetPort: 7777
+  type: ClusterIP
 
 # ============================================================================
 # UDR (Unified Data Repository)
@@ -403,6 +420,23 @@ spec:
             name: nextgcore-configs
         - name: logs
           emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: udr
+  namespace: otel25-backends
+  labels:
+    app.kubernetes.io/name: udr
+    app.kubernetes.io/part-of: nextgcore
+spec:
+  selector:
+    app.kubernetes.io/name: udr
+  ports:
+    - name: sbi
+      port: 7777
+      targetPort: 7777
+  type: ClusterIP
 
 # ============================================================================
 # AMF (Access and Mobility Management Function)
