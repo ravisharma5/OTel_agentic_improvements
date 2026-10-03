@@ -1,0 +1,49 @@
+openapi: "3.0.3"
+info:
+  title: "Synthetic Two-Operation API"
+  description: "Minimal spec with exactly 2 operations for proving allowlist exclusion."
+  version: "1.0.0"
+paths:
+  /alpha:
+    post:
+      operationId: "createAlpha"
+      summary: "Create an alpha resource"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+              required:
+                - name
+      responses:
+        "200":
+          description: "Alpha created"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  name:
+                    type: string
+  /beta:
+    get:
+      operationId: "getBeta"
+      summary: "Get beta resource"
+      responses:
+        "200":
+          description: "Beta retrieved"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  status:
+                    type: string
