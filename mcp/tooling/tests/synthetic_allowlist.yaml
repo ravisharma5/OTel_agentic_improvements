@@ -1,0 +1,6 @@
+server_name: "synthetic-test"
+spec_path: "WILL_BE_OVERRIDDEN_AT_TEST_TIME"
+backend_env_var: "SYNTHETIC_BASE_URL"
+operations:
+  - path: "/alpha"
+    methods: ["POST"]
