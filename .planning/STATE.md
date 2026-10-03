@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: planning
+status: executing
 stopped_at: Phase 2 context gathered
-last_updated: "2026-10-02T22:41:07.127Z"
-last_activity: 2026-10-02
+last_updated: "2026-10-03T14:33:09.215Z"
+last_activity: 2026-10-03 -- Phase 2 planning complete
 progress:
   total_phases: 5
   completed_phases: 1
-  total_plans: 4
+  total_plans: 7
   completed_plans: 4
   percent: 20
 ---
@@ -27,8 +27,8 @@ See: .planning/PROJECT.md (updated 2026-09-26)
 
 Phase: 2
 Plan: Not started
-Status: Ready to plan
-Last activity: 2026-10-02
+Status: Ready to execute
+Last activity: 2026-10-03 -- Phase 2 planning complete
 
 Progress: [..........] 0%
 
@@ -76,6 +76,7 @@ None yet.
 - NextGCore NWDAF on OpenShift returns HTTP 204 (empty, spec-correct) for NF_LOAD queries because nextgsim (the UE/gNB traffic simulator) was not deployed to the cluster -- only run locally via Podman during Plan 02's validation. Does not fail Phase 1's literal success criteria (204 is a valid response), but means the live OpenShift NWDAF has no real analytics data yet. Flagged by Phase 1 verification as a non-blocking follow-up: deploy nextgsim to otel25-backends (or otherwise drive UE/PDU traffic against the cluster) before Phase 4's SDG pipeline needs realistic NWDAF data.
 - Prism mock responses confirmed unrealistic in practice (Pitfall #3) -- observed during Phase 1 execution: deployed NWDAF mock returned Lorem Ipsum `nsiId` values (e.g. "sunt sit", "dolor pariatur laboris proident") and nonsensical negative `loadLevelInformation` values (e.g. -60465668) for TS 29.520 LOAD_LEVEL_INFORMATION analytics. Confirmed this affects all Prism-backed mocks (TMF642, TMF628, TMF621, CAMARA verify, CAMARA retrieve), not just NWDAF. Scoped intentionally as Phase 4's job (enrich vendored OpenAPI specs with realistic `example` values from TM Forum user guides before SDG generation) per existing PITFALLS.md mitigation and CONTEXT.md D-08 -- not addressed in Phase 1, which only requires schema-valid (not realistic) mock responses. Phase 4 planner should treat this as a known, evidenced requirement rather than a hypothetical risk.
 - MCP-Telecom (60+ device-layer tools, Phase 2) will be deployed with no network device backend configured -- by Phase 2 decision (02-CONTEXT.md D-07), its tools point at nothing and return connection errors when invoked. Phase 2 scaffolds the device-inventory config shape and a command-allowlist placeholder (D-10, D-10a) so the structure exists, but no real device data flows through MCP-Telecom until something wires real (or simulated) devices to it. Phase 4's SDG planner should treat "MCP-Telecom has no device backend" as a known, evidenced requirement to resolve before generating device-layer training examples, not a surprise discovered mid-pipeline.
+- FastMCP from_openapi()'s internal request dispatch may freeze the httpx client's base_url at tool-construction time rather than re-reading it per-request. Phase 2's ConfigMap file-watcher (02-03-PLAN.md) mutates the httpx client attribute and this is verified in isolation (unit test confirms attribute mutation propagates to the client object), but it has NOT been proven that FastMCP-dispatched tool requests actually use the updated base_url. Phase 3's planner must validate this before relying on BACK-03 compliance for the 20 generated domain servers; if it doesn't propagate, Phase 3 needs a different approach (e.g., recreating the FastMCP app instance on backend-URL change instead of mutating client.base_url). See 02-RESEARCH.md Open Question 1.
 
 ## Deferred Items
 

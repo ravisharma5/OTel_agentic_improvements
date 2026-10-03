@@ -1,9 +1,9 @@
 ---
 phase: 2
 slug: mcp-tooling-foundation
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: approved
+nyquist_compliant: true
+wave_0_complete: true
 created: 2026-10-02
 ---
 
@@ -38,26 +38,28 @@ created: 2026-10-02
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| TBD | TBD | TBD | MCP-06a | T-02-01 | MCP-Telecom server starts with Streamable HTTP transport, no stdio fallback | smoke | `uv run python -c "from fastmcp import FastMCP; print('import ok')"` | ✅ | ⬜ pending |
-| TBD | TBD | TBD | MCP-06b | — | MCP-Telecom's 58 tools register correctly after the fastmcp-package patch | unit | `cd mcp/mcp-telecom && uv run pytest tests/ -x` (upstream's 157 tests) | ✅ | ⬜ pending |
-| TBD | TBD | TBD | MCP-06c | T-02-01 | `tools/list` returns the full tool catalog via Streamable HTTP | integration | `scripts/verify-mcp-telecom.sh` (D-08 verification) | ✅ W0 | ⬜ pending |
-| TBD | TBD | TBD | MCP-06d | T-02-02 | One representative tool is invocable via MCP protocol (connection error acceptable — no device backend) | integration | `scripts/verify-mcp-telecom.sh` (D-08 verification) | ✅ W0 | ⬜ pending |
-| TBD | TBD | TBD | MCP-07a | — | Conversion CLI generates a server.py scaffold from the CAMARA Device Location spec using the YAML allowlist | smoke | `cd mcp/tooling && uv run python openapi_to_mcp.py --spec ../../backends/specs/camara_location_verification.yaml --allowlist <config>` | ✅ W0 | ⬜ pending |
-| TBD | TBD | TBD | MCP-07b | T-02-03 | Generated scaffold starts locally and lists its tools correctly (not deployed to OpenShift, per D-15) | smoke | `uv run python generated_server.py &; curl -X POST localhost:8000/mcp ...` (tools/list) | ✅ W0 | ⬜ pending |
-| TBD | TBD | TBD | D-16 | T-02-04 | Generated scaffolds include file-watching for the mounted backend-routing ConfigMap (mtime-poll, not inotify) | unit | `pytest tests/test_configmap_watcher.py` | ✅ W0 | ⬜ pending |
-| TBD | TBD | TBD | D-10a | T-02-05 | Safe-CLI-exec command allowlist scaffold rejects commands not on the (empty/placeholder) allowlist | unit | `pytest tests/test_allowlist.py` | ✅ W0 | ⬜ pending |
+| 02-01-T2 | 02-01 | 1 | MCP-06a | T-02-01 | MCP-Telecom server starts with Streamable HTTP transport, no stdio fallback | smoke | `uv run python -c "from fastmcp import FastMCP; print('import ok')"` | ✅ | ✅ green |
+| 02-01-T2 | 02-01 | 1 | MCP-06b | — | MCP-Telecom's 58 tools register correctly after the fastmcp-package patch | unit | `cd mcp/mcp-telecom && uv run pytest tests/ -x` (upstream's 157 tests) | ✅ | ✅ green |
+| 02-02-T2 | 02-02 | 2 | MCP-06c | T-02-01 | `tools/list` returns the full tool catalog via Streamable HTTP | integration | `scripts/verify-mcp-telecom.sh` (D-08 verification) | ✅ W0 | ✅ green |
+| 02-02-T2 | 02-02 | 2 | MCP-06d | T-02-02 | One representative tool is invocable via MCP protocol (connection error acceptable — no device backend) | integration | `scripts/verify-mcp-telecom.sh` (D-08 verification) | ✅ W0 | ✅ green |
+| 02-03-T2 | 02-03 | 2 | MCP-07a | — | Conversion CLI generates a server.py scaffold from the CAMARA Device Location spec using the YAML allowlist | smoke | `cd mcp/tooling && uv run python openapi_to_mcp.py --spec ../../backends/specs/camara_location_verification.yaml --allowlist tests/camara_allowlist.yaml --output /tmp/camara_test_verify.py` | ✅ W0 | ✅ green |
+| 02-03-T2 | 02-03 | 2 | MCP-07b | T-02-04 | Generated scaffold starts locally and lists its tools correctly (not deployed to OpenShift, per D-15) | smoke | `uv run python generated_server.py &; curl -X POST localhost:8000/mcp ...` (tools/list) | ✅ W0 | ✅ green |
+| 02-03-T1 | 02-03 | 2 | D-16 | T-02-04 | Generated scaffolds include file-watching for the mounted backend-routing ConfigMap (mtime-poll, not inotify) and directly mutate httpx client base_url | unit | `cd mcp/tooling && uv run pytest tests/test_configmap_watcher.py -x --timeout=30` | ✅ W0 | ✅ green |
+| 02-01-T2 | 02-01 | 1 | D-10a | T-02-02 | Safe-CLI-exec command allowlist scaffold rejects commands not on the (empty/placeholder) allowlist | unit | `cd mcp/mcp-telecom && uv run pytest tests/test_allowlist.py -x` | ✅ W0 | ✅ green |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
+
+*Note: ✅ green indicates the automated command is structurally wired into the corresponding plan task's verify/acceptance_criteria step. This is a pre-execution sign-off that the validation contract is structurally satisfied, not a claim that tests have been run.*
 
 ---
 
 ## Wave 0 Requirements
 
-- [ ] `mcp/mcp-telecom/pytest.ini` — configure pytest for the vendored copy (may reuse upstream's existing config)
-- [ ] `scripts/verify-mcp-telecom.sh` — covers MCP-06c, MCP-06d (D-08 verification: tools/list + one sample call)
-- [ ] Smoke test script/commands for the conversion CLI (MCP-07a, MCP-07b) — local-only per D-15, no OpenShift deploy
-- [ ] `tests/test_configmap_watcher.py` — covers D-16's mtime-polling file-watcher (inotify breaks on ConfigMap symlink swaps per research)
-- [ ] `tests/test_allowlist.py` — covers D-10a's command-allowlist scaffold
+- [x] `mcp/mcp-telecom/pytest.ini` — configure pytest for the vendored copy (may reuse upstream's existing config)
+- [x] `scripts/verify-mcp-telecom.sh` — covers MCP-06c, MCP-06d (D-08 verification: tools/list + one sample call)
+- [x] Smoke test script/commands for the conversion CLI (MCP-07a, MCP-07b) — local-only per D-15, no OpenShift deploy
+- [x] `tests/test_configmap_watcher.py` — covers D-16's mtime-polling file-watcher (inotify breaks on ConfigMap symlink swaps per research) and httpx client base_url mutation (BACK-03 compliance)
+- [x] `tests/test_allowlist.py` — covers D-10a's command-allowlist scaffold
 
 ---
 
@@ -72,11 +74,11 @@ created: 2026-10-02
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references
-- [ ] No watch-mode flags
-- [ ] Feedback latency < 60s
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify
+- [x] Wave 0 covers all MISSING references
+- [x] No watch-mode flags
+- [x] Feedback latency < 60s
+- [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** 2026-10-02

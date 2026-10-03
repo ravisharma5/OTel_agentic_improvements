@@ -728,7 +728,7 @@ if __name__ == "__main__":
 
 ## Open Questions
 
-1. **httpx.AsyncClient base_url dynamism with `from_openapi()`**
+1. **httpx.AsyncClient base_url dynamism with `from_openapi()`** (DEFERRED TO PHASE 3 — see STATE.md)
    - What we know: `from_openapi()` accepts an `httpx.AsyncClient` and uses it for backend calls. `base_url` is set at construction time.
    - What's unclear: Whether updating `client._base_url` or creating a new client on ConfigMap change will propagate correctly through the FastMCP internals.
    - Recommendation: Phase 2 scaffolds include the file-watcher and a TODO comment for Phase 3 to validate. The CAMARA smoke test (local, no ConfigMap) does not exercise this path.
