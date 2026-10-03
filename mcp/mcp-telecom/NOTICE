@@ -1,0 +1,32 @@
+MCP-Telecom (Vendored, Modified)
+==================================
+
+This directory contains a modified version of MCP-Telecom, originally
+created by Avinash Amudala.
+
+  Upstream repository: https://github.com/Avinash-Amudala/MCP-Telecom
+  Original license:    MIT (see LICENSE file in this directory)
+
+Modifications made for the OTel 2.5 Telecom Tool-Calling Training project:
+
+  1. Switched dependency from `mcp[cli]>=1.0.0` (MCP Python SDK v1.x) to
+     standalone `fastmcp>=4.0.0` (PrefectHQ) for compatibility with the
+     project's standard MCP framework.
+
+  2. Changed transport from stdio to Streamable HTTP (MCP 2026-07-28 protocol).
+     The server now listens on port 8000 via uvicorn ASGI. stdio support has
+     been removed (HTTP-only).
+
+  3. Added /healthz health endpoint returning JSON {"status": "ok"} for
+     OpenShift liveness/readiness probes.
+
+  4. Added device-inventory configuration scaffold (devices.yaml.example)
+     with OpenShift Secret references for credential management.
+
+  5. Added command-allowlist scaffold (command_allowlist.yaml) with
+     deny-by-default safety mechanism for the safe CLI exec tool.
+
+  6. Added httpx>=0.28.0 to dependencies for HTTP client support.
+
+These modifications were made to support deploying MCP-Telecom on OpenShift
+as part of the OTel 2.5 project's MCP Tooling Foundation (Phase 2).

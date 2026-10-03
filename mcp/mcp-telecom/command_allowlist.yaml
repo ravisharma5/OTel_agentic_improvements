@@ -1,0 +1,29 @@
+# MCP-Telecom Command Allowlist
+# ==============================
+#
+# DENY-BY-DEFAULT SAFETY MECHANISM
+# ---------------------------------
+# When the `allowed_commands` list is empty, ALL CLI commands submitted
+# through the safe-exec tool (run_command) are rejected. This ensures
+# that no commands can be executed on network devices until an operator
+# explicitly populates this list with specific permitted commands.
+#
+# Phase 4 populates this with specific permitted commands when wiring
+# real network devices. Until then, the empty list provides a safe
+# default that prevents any accidental command execution.
+#
+# FORMAT:
+# Each entry is a command prefix that will be allowed. Commands must
+# still pass the existing safety validation (read-only prefixes like
+# 'show', 'display', 'ping', 'traceroute'). This allowlist adds an
+# additional layer of restriction on top of the built-in safety checks.
+#
+# Example populated allowlist (for Phase 4):
+#   allowed_commands:
+#     - "show bgp summary"
+#     - "show interfaces"
+#     - "show routing table"
+#     - "ping"
+#     - "traceroute"
+
+allowed_commands: []
