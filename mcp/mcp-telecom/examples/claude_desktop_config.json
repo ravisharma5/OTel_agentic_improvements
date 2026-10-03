@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "mcp-telecom": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--directory",
+        "/path/to/MCP-Telecom",
+        "mcp-telecom"
+      ],
+      "env": {
+        "MCP_TELECOM_DEVICES_FILE": "/path/to/MCP-Telecom/devices.yaml",
+        "MCP_TELECOM_LOG_LEVEL": "INFO"
+      }
+    }
+  }
+}

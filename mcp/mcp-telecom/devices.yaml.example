@@ -1,0 +1,52 @@
+# MCP-Telecom Device Inventory Configuration
+# ============================================
+#
+# This file defines the network devices MCP-Telecom can interact with.
+# Copy this file to devices.yaml and update with your actual device details.
+#
+# CREDENTIAL MANAGEMENT (OpenShift Deployment)
+# ---------------------------------------------
+# The `credential_secret_ref` field references an OpenShift Secret by name.
+# When deployed on OpenShift, the Secret's keys are mounted as environment
+# variables or files inside the pod. Credentials NEVER appear as plaintext
+# in ConfigMaps, YAML files, or version control.
+#
+# Example Secret (applied separately, not committed to git):
+#   apiVersion: v1
+#   kind: Secret
+#   metadata:
+#     name: mcp-telecom-device-creds
+#     namespace: otel25-mcp
+#   type: Opaque
+#   data:
+#     NOKIA_USERNAME: <base64-encoded>
+#     NOKIA_PASSWORD: <base64-encoded>
+#     CISCO_USERNAME: <base64-encoded>
+#     CISCO_PASSWORD: <base64-encoded>
+#
+# The Deployment manifest mounts this Secret and the server reads
+# credentials from the corresponding environment variables at runtime.
+
+devices:
+  # Example device entry -- replace with real device details in Phase 4
+  - hostname: "router-lab-01.example.com"
+    platform: "cisco_ios"
+    device_type: "router"
+    port: 22
+    timeout: 30
+    credential_secret_ref: "mcp-telecom-device-creds"
+
+  # Additional device entries follow the same structure:
+  # - hostname: "switch-dc-01.example.com"
+  #   platform: "arista_eos"
+  #   device_type: "switch"
+  #   port: 22
+  #   timeout: 30
+  #   credential_secret_ref: "mcp-telecom-device-creds"
+  #
+  # - hostname: "pe-edge-01.example.com"
+  #   platform: "nokia_sros"
+  #   device_type: "router"
+  #   port: 22
+  #   timeout: 30
+  #   credential_secret_ref: "mcp-telecom-device-creds"

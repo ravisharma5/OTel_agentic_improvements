@@ -1,0 +1,13 @@
+services:
+  mcp-telecom:
+    build: .
+    container_name: mcp-telecom
+    volumes:
+      - ./devices.yaml:/app/devices.yaml:ro
+      - ./logs:/app/logs
+      - ./backups:/app/backups
+    environment:
+      - MCP_TELECOM_DEVICES_FILE=/app/devices.yaml
+      - MCP_TELECOM_LOG_LEVEL=INFO
+    stdin_open: true
+    restart: unless-stopped

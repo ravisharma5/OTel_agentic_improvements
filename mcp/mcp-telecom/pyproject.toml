@@ -1,0 +1,94 @@
+[project]
+name = "mcp-telecom"
+version = "0.2.0"
+description = "The first MCP server for network equipment — let AI agents talk to Nokia SR OS, Cisco IOS-XR, and Juniper Junos routers"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+authors = [
+    { name = "Avinash Amudala", email = "aa9429@g.rit.edu" },
+]
+keywords = [
+    "mcp",
+    "telecom",
+    "network",
+    "nokia",
+    "cisco",
+    "juniper",
+    "ai",
+    "llm",
+    "network-automation",
+    "sros",
+    "iosxr",
+    "junos",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Telecommunications Industry",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: System :: Networking",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "fastmcp>=4.0.0",
+    "httpx>=0.28.0",
+    "netmiko>=4.3.0",
+    "pyyaml>=6.0",
+    "pydantic>=2.0.0",
+    "rich>=13.0.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+netconf = ["ncclient>=0.6.15"]
+telemetry = ["grpcio>=1.60.0", "protobuf>=4.25.0"]
+snmp = ["pysnmp>=7.0.0"]
+dashboard = ["fastapi>=0.110.0", "uvicorn>=0.27.0"]
+metrics = ["prometheus_client>=0.20.0"]
+all = [
+    "ncclient>=0.6.15",
+    "grpcio>=1.60.0",
+    "protobuf>=4.25.0",
+    "pysnmp>=7.0.0",
+    "fastapi>=0.110.0",
+    "uvicorn>=0.27.0",
+    "prometheus_client>=0.20.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/Avinash-Amudala/MCP-Telecom"
+Repository = "https://github.com/Avinash-Amudala/MCP-Telecom"
+Issues = "https://github.com/Avinash-Amudala/MCP-Telecom/issues"
+Documentation = "https://github.com/Avinash-Amudala/MCP-Telecom#readme"
+
+[project.scripts]
+mcp-telecom = "mcp_telecom.server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mcp_telecom"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+    "ruff>=0.15.9",
+]
