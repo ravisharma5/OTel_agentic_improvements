@@ -46,7 +46,7 @@ updated: 2026-10-03
 | 02-02-T2 | 02-02 | 2 | MCP-06d | T-02-02 | One representative tool is invocable via MCP protocol (connection error acceptable — no device backend; schema-construction error is PASS-with-warning) | integration | `scripts/verify-mcp-telecom.sh` (D-08 verification) | W0 | green |
 | 02-03-T2 | 02-03 | 2 | MCP-07a | — | Conversion CLI generates a server.py scaffold from the CAMARA Device Location spec using the YAML allowlist | smoke | `cd mcp/tooling && uv run python openapi_to_mcp.py --spec ../../backends/specs/camara_location_verification.yaml --allowlist tests/camara_allowlist.yaml --output /tmp/camara_test_verify.py` | W0 | green |
 | 02-03-T2 | 02-03 | 2 | MCP-07b | T-02-04 | Generated scaffold starts locally and lists its tools correctly (not deployed to OpenShift, per D-15) | smoke | `uv run python generated_server.py &; curl -X POST localhost:8000/mcp ...` (tools/list) | W0 | green |
-| 02-03-T2 | 02-03 | 2 | D-12/D-14 | — | Allowlist filtering proven: synthetic 2-op spec with 1-op allowlist produces scaffold exposing exactly 1 tool, excluded op absent | unit | `cd mcp/tooling && uv run pytest tests/test_allowlist_filtering.py -x --timeout=30` | W0 | green |
+| 02-03-T2 | 02-03 | 2 | D-12/D-14 | — | Allowlist filtering proven end-to-end: synthetic 2-op spec with 1-op allowlist produces scaffold exposing exactly 1 tool (verified via static source-text assertions AND dynamic runtime tools/list check against the running generated server) | unit+integration | `cd mcp/tooling && uv run pytest tests/test_allowlist_filtering.py -x --timeout=60` | W0 | green |
 | 02-03-T2 | 02-03 | 2 | MCP-07a | — | Generated scaffold bakes absolute spec path (works from any execution directory) | smoke | `python3 -c "..." ` (regex check that SPEC_PATH starts with /) | W0 | green |
 | 02-03-T1 | 02-03 | 2 | D-16 | T-02-04 | Generated scaffolds include file-watching for the mounted backend-routing ConfigMap (mtime-poll, not inotify) and directly mutate httpx client base_url | unit | `cd mcp/tooling && uv run pytest tests/test_configmap_watcher.py -x --timeout=30` | W0 | green |
 | 02-01-T2 | 02-01 | 1 | D-10a | T-02-02 | Safe-CLI-exec command allowlist scaffold rejects commands not on the (empty/placeholder) allowlist | unit | `cd mcp/mcp-telecom && uv run pytest tests/test_allowlist.py -x` | W0 | green |
@@ -64,7 +64,7 @@ updated: 2026-10-03
 - [x] Smoke test script/commands for the conversion CLI (MCP-07a, MCP-07b) — local-only per D-15, no OpenShift deploy
 - [x] `tests/test_configmap_watcher.py` — covers D-16's mtime-polling file-watcher (inotify breaks on ConfigMap symlink swaps per research) and httpx client base_url mutation (BACK-03 compliance)
 - [x] `tests/test_allowlist.py` — covers D-10a's command-allowlist scaffold
-- [x] `tests/test_allowlist_filtering.py` — covers D-12/D-14 allowlist exclusion proof (synthetic 2-operation fixture)
+- [x] `tests/test_allowlist_filtering.py` — covers D-12/D-14 allowlist exclusion proof (synthetic 2-operation fixture, static + dynamic runtime verification)
 - [x] `tests/synthetic_two_op_spec.yaml` + `tests/synthetic_allowlist.yaml` — test fixtures for filtering proof
 
 ---
@@ -88,4 +88,4 @@ updated: 2026-10-03
 - [x] `nyquist_compliant: true` set in frontmatter
 
 **Approval:** 2026-10-02
-**Updated:** 2026-10-03 (added allowlist filtering test row, uv.lock row, absolute-spec-path row, updated MCP-06d description for schema-construction tolerance)
+**Updated:** 2026-10-03 (added allowlist filtering test row, uv.lock row, absolute-spec-path row, updated MCP-06d description for schema-construction tolerance; updated D-12/D-14 row to reflect mandatory dynamic runtime tools/list check alongside static assertions, timeout increased to 60s)
