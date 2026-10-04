@@ -12,18 +12,18 @@ OTel 2.5 can correctly call telecom tools (TMF, CAMARA, NWDAF) to complete fault
 
 ## Current State
 
-Phase 1 (Backend Infrastructure) complete — all 5 Prism mock backends (TMF642, TMF628, TMF621, CAMARA verify + retrieve) and a real NextGCore NWDAF deployment (not a mock fallback) are running on OpenShift in namespace `otel25-backends`, with ConfigMap-based mock/live routing verified. Ready for Phase 2 (MCP Tooling Foundation).
+Phase 1 (Backend Infrastructure) and Phase 2 (MCP Tooling Foundation) complete. Phase 1: all 5 Prism mock backends (TMF642, TMF628, TMF621, CAMARA verify + retrieve) and a real NextGCore NWDAF deployment (not a mock fallback) are running on OpenShift in namespace `otel25-backends`, with ConfigMap-based mock/live routing verified. Phase 2: MCP-Telecom (58 device-layer tools) vendored, patched to Streamable HTTP, and deployed on OpenShift in namespace `otel25-mcp` (verified live — pod Running, `tools/list` returns 58 tools, tool invocation works); reusable OpenAPI-to-MCP conversion CLI built and proven against the real CAMARA spec plus a synthetic fixture proving allowlist-based operation filtering. Three security gaps found in vendored MCP-Telecom code during code review (command allowlist not enforced, unsanitized SSH/file-read args) are dormant under Phase 2's scope (no device backend wired) and flagged forward for Phase 4. Ready for Phase 3 (MCP Domain Servers and Gateway).
 
 ## Requirements
 
 ### Validated
 
-(None yet — ship to validate)
+- Integrate MCP-Telecom (60+ tools, MIT) for infrastructure/device layer fault data — Phase 2: vendored, patched to Streamable HTTP, deployed and verified live on OpenShift (MCP-06)
+- Build reusable OpenAPI-to-MCP conversion tooling for future API waves — Phase 2: CLI built, smoke-tested against the real CAMARA spec, and proven to enforce operation filtering via a synthetic 2-operation fixture (MCP-07)
 
 ### Active
 
 - [ ] Build ~20 new MCP tools for fault prediction (TMF642 alarm mgmt, TMF628 performance, TMF621 trouble ticket, NWDAF TS 29.520 analytics, CAMARA Device Location)
-- [ ] Integrate MCP-Telecom (60+ tools, MIT) for infrastructure/device layer fault data
 - [ ] Deploy MCP servers and sandbox backends on OpenShift
 - [ ] Build SDG pipeline: teacher model generates tool-calling examples from MCP tool schemas
 - [ ] Execute SDG with three-tier backend verification (NextGCore live, operator sandboxes, Prism mocks)
@@ -62,7 +62,7 @@ Phase 1 (Backend Infrastructure) complete — all 5 Prism mock backends (TMF642,
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
 | Start with fault prediction use case | Narrowest API surface (TMF642 + TMF628 + NWDAF), proven SDG pipeline (NeMo), clear eval (ZTE-AIM/TFCE) | — Pending |
-| Two-track MCP approach: MCP-Telecom (device layer) + build new BSS/OSS tools | MCP-Telecom already covers infrastructure; BSS/OSS layer (TMF, NWDAF, CAMARA) has no existing MCP servers | — Pending |
+| Two-track MCP approach: MCP-Telecom (device layer) + build new BSS/OSS tools | MCP-Telecom already covers infrastructure; BSS/OSS layer (TMF, NWDAF, CAMARA) has no existing MCP servers | Validated in Phase 2 — MCP-Telecom deployed and verified; BSS/OSS tools scoped to Phase 3 |
 | Training data + pipeline as deliverable, not trained model | WG produces data, Farbod's team runs OSFT. Separation of concerns. | — Pending |
 | Conformance test suite over formal MCP certification | Test suite gets 80% of value at 10% of overhead. Certification can come later. | — Pending |
 | Separate industry gaps doc from training project | Gaps (MCP conformance, telco API simulators, agent deployment ref arch) are strategic, not tied to Oct 15 deadline | — Pending |
@@ -85,4 +85,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-10-02 after Phase 1 completion*
+*Last updated: 2026-10-04 after Phase 2 completion*
