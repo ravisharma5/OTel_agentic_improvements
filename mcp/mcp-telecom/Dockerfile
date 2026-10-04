@@ -13,7 +13,8 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 WORKDIR /app
 
 # Layer caching: copy dependency manifests first, install, then copy source
-COPY pyproject.toml uv.lock ./
+# README.md is required by hatchling build backend (referenced in pyproject.toml)
+COPY pyproject.toml uv.lock README.md ./
 
 # Install production dependencies only (frozen lockfile, no dev deps)
 RUN uv sync --no-dev --frozen
