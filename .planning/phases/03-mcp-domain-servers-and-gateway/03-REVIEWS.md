@@ -1,6 +1,6 @@
 ---
 phase: 3
-reviewers: [gemini, cursor]
+reviewers: [gemini, cursor]  # ollama (qwen3.8:27b) attempted, timed out after 30min — see note below
 reviewed_at: 2026-10-04T21:38:10Z
 plans_reviewed: [03-01-PLAN.md, 03-02-PLAN.md, 03-03-PLAN.md, 03-04-PLAN.md, 03-05-PLAN.md, 03-06-PLAN.md]
 ---
@@ -8,7 +8,7 @@ plans_reviewed: [03-01-PLAN.md, 03-02-PLAN.md, 03-03-PLAN.md, 03-04-PLAN.md, 03-
 # Cross-AI Plan Review — Phase 3
 
 > `claude` (this CLI) was skipped for independence — the orchestrating session runs on Claude Code.
-> `ollama` (local qwen3.8:27b) was also requested but did not return a response within the allotted time (~45K-token prompt is too large for the local model's throughput); it has been launched as a long-running background job and will be appended to this file if it completes. Proceeding with gemini + cursor.
+> `ollama` (local qwen3.8:27b) was also requested but timed out after 30 minutes (curl exit 28) without returning a response — the ~45K-token prompt exceeds what this local model can process in reasonable time on this machine. Proceeding with gemini + cursor only.
 
 ## Gemini Review
 
@@ -76,7 +76,7 @@ The plans are thoughtfully decomposed and mostly achieve the right shape for Pha
 
 ## Ollama Review
 
-*Not available at time of writing — local qwen3.8:27b did not return a response for this ~45K-token prompt within the allotted time. See note at top of this document.*
+*Unavailable — local qwen3.8:27b timed out after 30 minutes without returning a response for this ~45K-token prompt. See note at top of this document.*
 
 ---
 
