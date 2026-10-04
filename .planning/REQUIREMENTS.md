@@ -12,8 +12,8 @@
 - [ ] **MCP-03**: Build 4 curated TMF621 trouble ticket MCP tools (create, update, get, list)
 - [ ] **MCP-04**: Build 3 curated NWDAF TS 29.520 analytics MCP tools (get analytics, subscribe events, unsubscribe)
 - [ ] **MCP-05**: Build 2 curated CAMARA Device Location MCP tools (verify location, retrieve location)
-- [ ] **MCP-06**: Deploy MCP-Telecom (60+ device-layer tools) on OpenShift for infrastructure fault data
-- [ ] **MCP-07**: Build reusable OpenAPI-to-MCP conversion tooling for future API waves
+- [x] **MCP-06**: Deploy MCP-Telecom (60+ device-layer tools) on OpenShift for infrastructure fault data
+- [x] **MCP-07**: Build reusable OpenAPI-to-MCP conversion tooling for future API waves
 - [ ] **MCP-08**: Compose all MCP servers behind Kuadrant MCP Gateway on OpenShift with tool namespacing
 
 ### Backends
@@ -79,8 +79,8 @@
 | MCP-03 | Phase 3 | Pending |
 | MCP-04 | Phase 3 | Pending |
 | MCP-05 | Phase 3 | Pending |
-| MCP-06 | Phase 2 | Pending |
-| MCP-07 | Phase 2 | Pending |
+| MCP-06 | Phase 2 | Complete |
+| MCP-07 | Phase 2 | Complete |
 | MCP-08 | Phase 3 | Pending |
 | BACK-01 | Phase 1 | Complete |
 | BACK-02 | Phase 1 | Complete |
