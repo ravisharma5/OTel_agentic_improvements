@@ -1828,12 +1828,15 @@ def resource_pool_stats() -> str:
 def create_app():
     """Create the ASGI app with custom routes (e.g. /healthz)."""
     from starlette.responses import JSONResponse
+    from starlette.routing import Route
 
-    app = mcp.http_app()
-
-    @app.route("/healthz")
     async def healthz(request):
         return JSONResponse({"status": "ok"})
+
+    app = mcp.http_app()
+    # Add /healthz route for readiness probe (D-20)
+    # StarletteWithLifespan uses .router.routes, not .route() decorator
+    app.router.routes.append(Route("/healthz", healthz))
 
     return app
 

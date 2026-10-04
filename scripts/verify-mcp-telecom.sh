@@ -7,6 +7,11 @@
 #                      returns a valid MCP response (connection/device errors expected
 #                      per D-07; tool-not-found errors are failures)
 #
+# MCP Streamable HTTP requires session management:
+#   1. Send initialize to get Mcp-Session-Id
+#   2. Send notifications/initialized with session ID
+#   3. Use session ID for all subsequent requests
+#
 # Usage: MCP_TELECOM_URL=http://localhost:8000 bash scripts/verify-mcp-telecom.sh
 #        Requires: curl, jq
 
@@ -22,6 +27,47 @@ echo "=== MCP-Telecom Protocol Verification ==="
 echo "Target: ${MCP_TELECOM_URL}"
 echo ""
 
+# ─── Session Setup: initialize + notifications/initialized ───────────────────
+echo "--- Session Setup: MCP initialize handshake ---"
+
+INIT_RESPONSE=$(curl -s -D /dev/stderr \
+  -X POST "${MCP_TELECOM_URL}/mcp" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -d '{"jsonrpc":"2.0","method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"verify-mcp-telecom","version":"1.0"}},"id":0}' \
+  --max-time 30 2>/tmp/mcp-init-headers || echo "")
+
+# Extract session ID from response headers
+SESSION_ID=$(grep -i 'mcp-session-id' /tmp/mcp-init-headers | tr -d '\r' | awk '{print $2}' || echo "")
+
+if [[ -z "$SESSION_ID" ]]; then
+  echo "  FAIL: could not obtain Mcp-Session-Id from initialize response"
+  echo "  Headers: $(cat /tmp/mcp-init-headers 2>/dev/null)"
+  FAIL=$((FAIL + 1))
+  echo ""
+  echo "=== Results ==="
+  echo "Tests: 2"
+  echo "Passed: $PASS"
+  echo "Failed: $FAIL"
+  echo "Warnings: $WARN"
+  echo ""
+  echo "OVERALL: FAIL"
+  exit 1
+fi
+
+echo "  PASS: obtained session ID"
+
+# Send notifications/initialized (no response body expected for notifications)
+curl -s -X POST "${MCP_TELECOM_URL}/mcp" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -H "Mcp-Session-Id: ${SESSION_ID}" \
+  -d '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
+  --max-time 10 >/dev/null 2>&1 || true
+
+echo "  PASS: sent notifications/initialized"
+echo ""
+
 # ─── Test 1 (MCP-06c): tools/list ─────────────────────────────────────────────
 echo "--- Test 1: tools/list via Streamable HTTP ---"
 
@@ -29,6 +75,7 @@ TOOLS_RESPONSE=$(curl -s -w "\n%{http_code}" \
   -X POST "${MCP_TELECOM_URL}/mcp" \
   -H "Content-Type: application/json" \
   -H "Accept: application/json, text/event-stream" \
+  -H "Mcp-Session-Id: ${SESSION_ID}" \
   -d '{"jsonrpc":"2.0","method":"tools/list","id":1}' \
   --max-time 30 2>/dev/null || echo -e "\n000")
 
@@ -53,7 +100,7 @@ else
 fi
 
 # Handle SSE (text/event-stream) responses: extract JSON from data: lines
-# FastMCP may respond with SSE format even for single responses
+# FastMCP responds with SSE format for Streamable HTTP
 if echo "$TOOLS_BODY" | grep -q '^data: '; then
   TOOLS_BODY=$(echo "$TOOLS_BODY" | grep '^data: ' | tail -1 | sed 's/^data: //')
 fi
@@ -171,6 +218,7 @@ CALL_RESPONSE=$(curl -s -w "\n%{http_code}" \
   -X POST "${MCP_TELECOM_URL}/mcp" \
   -H "Content-Type: application/json" \
   -H "Accept: application/json, text/event-stream" \
+  -H "Mcp-Session-Id: ${SESSION_ID}" \
   -d "{\"jsonrpc\":\"2.0\",\"method\":\"tools/call\",\"params\":{\"name\":\"$SELECTED_TOOL\",\"arguments\":$TOOL_ARGS},\"id\":2}" \
   --max-time 30 2>/dev/null || echo -e "\n000")
 
