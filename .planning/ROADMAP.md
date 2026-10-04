@@ -81,13 +81,26 @@ Plans:
   2. Kuadrant MCP Gateway on OpenShift composes all domain MCP servers and MCP-Telecom with tool namespacing, presenting a single endpoint
   3. An MCP client calling any tool through the gateway receives the correct backend response -- Prism mock or live NextGCore depending on routing configuration
 
-**Plans**: TBD
+**Plans:** 6 plans
 
 Plans:
+**Wave 1**
 
-- [ ] 03-01: TBD
-- [ ] 03-02: TBD
-- [ ] 03-03: TBD
+- [ ] 03-01-PLAN.md -- Package legitimacy verification and verification scripts (verify-domain-tools.sh, verify-gateway.sh)
+- [ ] 03-04-PLAN.md -- Gateway + auth infrastructure (OSSM 3.3+, cert-manager, Keycloak, RHCL MCP Gateway Operator)
+
+**Wave 2** *(blocked on Wave 1 Plan 01)*
+
+- [ ] 03-02-PLAN.md -- TMF single-spec domain servers: TMF642 (6 tools), TMF628 (5 tools), TMF621 (4 tools)
+- [ ] 03-03-PLAN.md -- Multi-spec domain servers: NWDAF (3 tools), CAMARA (2 tools)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 03-05-PLAN.md -- Domain server containerization, OpenShift deployment, 20-tool individual verification
+
+**Wave 4** *(blocked on Wave 3 + Wave 1 Plan 04)*
+
+- [ ] 03-06-PLAN.md -- Backend registration (MCPServerRegistration), virtual servers, AuthPolicy, end-to-end gateway verification
 
 ### Phase 4: SDG Pipeline and Dataset Production
 
@@ -134,6 +147,6 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4. Phase 5 runs in parallel.
 |-------|----------------|--------|-----------|
 | 1. Backend Infrastructure | 4/4 | Complete    | 2026-10-02 |
 | 2. MCP Tooling Foundation | 3/3 | Complete    | 2026-10-04 |
-| 3. MCP Domain Servers and Gateway | 0/3 | Not started | - |
+| 3. MCP Domain Servers and Gateway | 0/6 | Not started | - |
 | 4. SDG Pipeline and Dataset Production | 0/3 | Not started | - |
 | 5. Industry Gaps Document | 0/1 | Not started | - |
