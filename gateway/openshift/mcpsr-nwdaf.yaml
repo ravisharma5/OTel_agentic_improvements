@@ -1,0 +1,15 @@
+# MCPServerRegistration: register NWDAF TS 29.520 analytics MCP server
+# Prefix "nwdaf" -- all discovered tools prefixed with nwdaf_
+# targetRef points to the HTTPRoute that routes to mcp-nwdaf backend
+apiVersion: mcp.kuadrant.io/v1alpha1
+kind: MCPServerRegistration
+metadata:
+  name: nwdaf
+  namespace: otel25-gateway
+spec:
+  prefix: nwdaf
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: mcp-nwdaf-route
+  path: /mcp

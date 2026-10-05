@@ -1,0 +1,14 @@
+# MCPVirtualServer: NWDAF TS 29.520 analytics tools
+# Filters gateway tools/list to exactly 3 NWDAF tools
+# Tool names from live gateway discovery (Task 1 Step 5)
+apiVersion: mcp.kuadrant.io/v1alpha1
+kind: MCPVirtualServer
+metadata:
+  name: nwdaf-tools
+  namespace: otel25-gateway
+spec:
+  description: "NWDAF TS 29.520 analytics and event subscription tools"
+  tools:
+  - nwdafget_nwdaf_analytics
+  - nwdafsubscribe_nwdaf_events
+  - nwdafunsubscribe_nwdaf_events

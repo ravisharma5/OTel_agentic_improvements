@@ -1,0 +1,28 @@
+# AuthPolicy: JWT authentication for MCP Gateway (D-08)
+# Validates JWT tokens issued by Keycloak mcp realm.
+# Excludes /.well-known endpoints from auth to allow OIDC discovery.
+# Auth-only (no per-tool authorization via CEL) -- sufficient for WG training pipeline.
+# Reference: RHCL 1.4 AuthPolicy Pattern 5 in 03-RESEARCH.md
+apiVersion: kuadrant.io/v1
+kind: AuthPolicy
+metadata:
+  name: mcp-auth
+  namespace: otel25-gateway
+spec:
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: Gateway
+    name: mcp-gateway
+    sectionName: mcp
+  defaults:
+    when:
+    - predicate: "!request.path.startsWith('/.well-known')"
+    rules:
+      authentication:
+        jwt-auth:
+          jwt:
+            issuerUrl: https://mcp-keycloak-otel25-gateway.apps.cluster-wfhjs.wfhjs.sandbox1330.opentlc.com/realms/mcp
+      response:
+        unauthenticated:
+          body:
+            value: '{"error": "Unauthorized", "message": "Authentication required."}'

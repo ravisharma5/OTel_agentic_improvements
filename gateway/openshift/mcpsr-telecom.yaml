@@ -1,0 +1,16 @@
+# MCPServerRegistration: register MCP-Telecom infrastructure/device-layer MCP server
+# Prefix "telecom" -- all discovered tools prefixed with telecom_ (no hyphens per Pitfall 3)
+# MCP-Telecom deployed in Phase 2 with 58 tools
+# targetRef points to the HTTPRoute that routes to mcp-telecom backend
+apiVersion: mcp.kuadrant.io/v1alpha1
+kind: MCPServerRegistration
+metadata:
+  name: telecom
+  namespace: otel25-gateway
+spec:
+  prefix: telecom
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: mcp-telecom-route
+  path: /mcp

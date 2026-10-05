@@ -1,0 +1,69 @@
+# MCPVirtualServer: MCP-Telecom infrastructure and device-layer tools
+# Filters gateway tools/list to exactly 58 MCP-Telecom tools
+# Tool names from live gateway discovery (Task 1 Step 5)
+apiVersion: mcp.kuadrant.io/v1alpha1
+kind: MCPVirtualServer
+metadata:
+  name: infra-tools
+  namespace: otel25-gateway
+spec:
+  description: "MCP-Telecom infrastructure and device-layer tools"
+  tools:
+  - telecombackup_config
+  - telecomclab_devices_yaml
+  - telecomclab_generate
+  - telecomclab_scenarios
+  - telecomcompare_configs
+  - telecomcompare_devices
+  - telecomcompliance_check
+  - telecomcompliance_check_rule
+  - telecomcompliance_list_rules
+  - telecomdiscover_topology
+  - telecomfind_path
+  - telecomget_audit_log
+  - telecomhealth_check
+  - telecomlist_device_capabilities
+  - telecomlist_devices
+  - telecomnetconf_capabilities
+  - telecomnetconf_get_config
+  - telecomnetconf_get_operational
+  - telecomparallel_command
+  - telecomparallel_health_check
+  - telecomparallel_operation
+  - telecompool_stats
+  - telecomrun_command
+  - telecomrun_vendor_operation
+  - telecomshow_alarms
+  - telecomshow_arp_table
+  - telecomshow_bgp_neighbors
+  - telecomshow_bgp_summary
+  - telecomshow_cpu
+  - telecomshow_device_neighbors
+  - telecomshow_environment
+  - telecomshow_interface_detail
+  - telecomshow_interfaces
+  - telecomshow_lag_status
+  - telecomshow_lldp_neighbors
+  - telecomshow_log_events
+  - telecomshow_mac_table
+  - telecomshow_memory
+  - telecomshow_mpls_lsp
+  - telecomshow_nokia_services
+  - telecomshow_ntp_status
+  - telecomshow_ospf_neighbors
+  - telecomshow_routing_table
+  - telecomshow_system_info
+  - telecomshow_topology
+  - telecomshow_topology_json
+  - telecomshow_topology_mermaid
+  - telecomsnmp_device_overview
+  - telecomsnmp_get
+  - telecomsnmp_walk
+  - telecomstart_dashboard
+  - telecomstart_metrics_endpoint
+  - telecomtelemetry_history
+  - telecomtelemetry_list_paths
+  - telecomtelemetry_list_subscriptions
+  - telecomtelemetry_query
+  - telecomtelemetry_subscribe
+  - telecomtelemetry_unsubscribe

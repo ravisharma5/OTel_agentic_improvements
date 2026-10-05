@@ -1,0 +1,15 @@
+# MCPServerRegistration: register CAMARA device location MCP server
+# Prefix "camara" -- all discovered tools prefixed with camara_
+# targetRef points to the HTTPRoute that routes to mcp-camara backend
+apiVersion: mcp.kuadrant.io/v1alpha1
+kind: MCPServerRegistration
+metadata:
+  name: camara
+  namespace: otel25-gateway
+spec:
+  prefix: camara
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: mcp-camara-route
+  path: /mcp

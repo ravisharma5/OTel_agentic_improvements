@@ -1,0 +1,20 @@
+# HTTPRoute: route MCP traffic to TMF642 alarm management backend
+# Points to mcp-tmf642 Service in otel25-mcp (cross-namespace via ReferenceGrant)
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: mcp-tmf642-route
+  namespace: otel25-gateway
+  labels:
+    mcp-server: "true"
+spec:
+  hostnames:
+  - tmf642.mcp.local
+  parentRefs:
+  - name: mcp-gateway
+    namespace: otel25-gateway
+  rules:
+  - backendRefs:
+    - name: mcp-tmf642
+      namespace: otel25-mcp
+      port: 8000

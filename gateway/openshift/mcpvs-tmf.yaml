@@ -1,0 +1,29 @@
+# MCPVirtualServer: TMF domain tools (alarm, performance, trouble ticket)
+# Filters gateway tools/list to exactly 15 TMF tools (6+5+4)
+# Tool names from live gateway discovery (Task 1 Step 5)
+apiVersion: mcp.kuadrant.io/v1alpha1
+kind: MCPVirtualServer
+metadata:
+  name: tmf-tools
+  namespace: otel25-gateway
+spec:
+  description: "TMF alarm management, performance monitoring, and trouble ticket tools for fault prediction workflows"
+  tools:
+  # TMF642 Alarm Management (6 tools)
+  - tmf642acknowledge_alarm
+  - tmf642add_comment
+  - tmf642clear_alarm
+  - tmf642createHub
+  - tmf642listAlarm
+  - tmf642retrieveAlarm
+  # TMF628 Performance Management (5 tools)
+  - tmf628createOnDemandCollection
+  - tmf628listMeasurementCollectionJob
+  - tmf628listTrackingRecord
+  - tmf628retrieveMeasurementCollectionJob
+  - tmf628retrieveTrackingRecord
+  # TMF621 Trouble Ticket (4 tools)
+  - tmf621createTroubleTicket
+  - tmf621listTroubleTicket
+  - tmf621patchTroubleTicket
+  - tmf621retrieveTroubleTicket

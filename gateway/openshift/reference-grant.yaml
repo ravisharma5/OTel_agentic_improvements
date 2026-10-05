@@ -1,0 +1,17 @@
+# ReferenceGrant: allow HTTPRoutes in otel25-gateway to reference
+# Services in otel25-mcp (cross-namespace backend routing).
+# This resource lives in the TARGET namespace (otel25-mcp), not the gateway namespace.
+# Reference: Gateway API cross-namespace ReferenceGrant (Pitfall 7 in 03-RESEARCH.md)
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: ReferenceGrant
+metadata:
+  name: allow-gateway-to-mcp
+  namespace: otel25-mcp
+spec:
+  from:
+  - group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    namespace: otel25-gateway
+  to:
+  - group: ""
+    kind: Service
