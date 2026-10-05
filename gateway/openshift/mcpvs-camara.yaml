@@ -1,0 +1,13 @@
+# MCPVirtualServer: CAMARA Device Location tools
+# Filters gateway tools/list to exactly 2 CAMARA tools
+# Tool names from live gateway discovery (Task 1 Step 5)
+apiVersion: mcp.kuadrant.io/v1alpha1
+kind: MCPVirtualServer
+metadata:
+  name: camara-tools
+  namespace: otel25-gateway
+spec:
+  description: "CAMARA Device Location verification and retrieval tools"
+  tools:
+  - camararetrieve_location
+  - camaraverify_location

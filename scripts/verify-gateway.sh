@@ -42,7 +42,8 @@ if ! echo "$VALID_MODES" | grep -qw "$MODE"; then
 fi
 
 # Known-good tool for tool-call mode (TMF642 list alarms -- GET endpoint, no body needed)
-TOOLCALL_TOOL_NAME="tmf642_list_alarms"
+# Note: MCPServerRegistration prefix is concatenated without underscore (tmf642 + listAlarm)
+TOOLCALL_TOOL_NAME="tmf642listAlarm"
 TOOLCALL_TOOL_ARGS='{}'
 
 # Temp files for this run

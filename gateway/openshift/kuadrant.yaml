@@ -1,0 +1,9 @@
+# Kuadrant CR: enables RHCL policy reconciliation (AuthPolicy, RateLimitPolicy, etc.)
+# Required for AuthPolicy to be processed by the RHCL controller.
+# The RHCL operator (installed in openshift-operators) watches all namespaces.
+apiVersion: kuadrant.io/v1beta1
+kind: Kuadrant
+metadata:
+  name: kuadrant
+  namespace: otel25-gateway
+spec: {}
