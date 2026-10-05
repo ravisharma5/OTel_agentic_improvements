@@ -1,0 +1,58 @@
+# MCP-Telecom Device Inventory -- Containerlab Basic Scenario
+# ============================================================
+#
+# 3x Nokia SR Linux devices deployed via Containerlab.
+# Management IPs from 172.20.20.0/24 subnet (Containerlab default).
+#
+# CREDENTIAL MANAGEMENT (OpenShift Deployment)
+# ---------------------------------------------
+# The default Nokia SRL credentials (admin/NokiaSrl1!) are used for
+# local Containerlab testing. For OpenShift deployment, move credentials
+# to a Kubernetes Secret and reference via environment variables:
+#
+#   apiVersion: v1
+#   kind: Secret
+#   metadata:
+#     name: mcp-telecom-device-creds
+#     namespace: otel25-mcp
+#   type: Opaque
+#   data:
+#     CLAB_DEVICE_USERNAME: YWRtaW4=       # admin
+#     CLAB_DEVICE_PASSWORD: Tm9raWFTcmwxIQ==  # NokiaSrl1!
+#
+# Deployed via Clabernetes on OpenShift (namespace c9s). Hosts use the
+# per-node Clabernetes LoadBalancer Service's in-cluster DNS name
+# (ClusterIP is reachable cluster-wide even though EXTERNAL-IP is <pending>
+# on this sandbox cluster with no cloud LB provisioner):
+#   mcp-telecom-basic-r1.c9s.svc.cluster.local
+#   mcp-telecom-basic-r2.c9s.svc.cluster.local
+#   mcp-telecom-basic-r3.c9s.svc.cluster.local
+# Verified 2026-10-05: SSH banner + authenticated `show version` succeeded
+# against r1 from the mcp-telecom pod in otel25-mcp.
+#
+# DeviceManager.load_config() expects a top-level dict keyed by device name.
+# Each device must have: host, device_type, port, timeout, username, password.
+
+r1:
+  host: "mcp-telecom-basic-r1.c9s.svc.cluster.local"
+  device_type: "nokia_sros"
+  port: 22
+  timeout: 30
+  username: "admin"
+  password: "NokiaSrl1!"
+
+r2:
+  host: "mcp-telecom-basic-r2.c9s.svc.cluster.local"
+  device_type: "nokia_sros"
+  port: 22
+  timeout: 30
+  username: "admin"
+  password: "NokiaSrl1!"
+
+r3:
+  host: "mcp-telecom-basic-r3.c9s.svc.cluster.local"
+  device_type: "nokia_sros"
+  port: 22
+  timeout: 30
+  username: "admin"
+  password: "NokiaSrl1!"

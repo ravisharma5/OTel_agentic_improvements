@@ -3,27 +3,74 @@
 #
 # DENY-BY-DEFAULT SAFETY MECHANISM
 # ---------------------------------
-# When the `allowed_commands` list is empty, ALL CLI commands submitted
-# through the safe-exec tool (run_command) are rejected. This ensures
-# that no commands can be executed on network devices until an operator
-# explicitly populates this list with specific permitted commands.
+# validate_command() in safety.py enforces this allowlist as Gate 2 (CR-01).
+# Commands must pass BOTH the safety regex check (read-only prefixes, no
+# blocked patterns) AND match a prefix in this list.
 #
-# Phase 4 populates this with specific permitted commands when wiring
-# real network devices. Until then, the empty list provides a safe
-# default that prevents any accidental command execution.
+# An empty `allowed_commands` list rejects ALL commands. This ensures no
+# commands execute on network devices until explicitly permitted below.
 #
 # FORMAT:
-# Each entry is a command prefix that will be allowed. Commands must
-# still pass the existing safety validation (read-only prefixes like
-# 'show', 'display', 'ping', 'traceroute'). This allowlist adds an
-# additional layer of restriction on top of the built-in safety checks.
+# Each entry is a command prefix. A command is allowed if it starts with
+# any prefix in this list (case-insensitive match in validate_command).
 #
-# Example populated allowlist (for Phase 4):
-#   allowed_commands:
-#     - "show bgp summary"
-#     - "show interfaces"
-#     - "show routing table"
-#     - "ping"
-#     - "traceroute"
+# COVERAGE:
+# These prefixes cover MCP-Telecom's 58 device-layer tools across:
+#   - Nokia SR OS / SR Linux: show, display families
+#   - Cisco IOS / IOS-XR / NX-OS: show family
+#   - Juniper Junos: show family
+#   - Arista EOS: show family
+#   - Diagnostics: ping, traceroute
 
-allowed_commands: []
+allowed_commands:
+  # --- BGP / Routing ---
+  - "show bgp"
+  - "show bgp summary"
+  - "show bgp neighbors"
+  - "show ip bgp"
+  - "show ip route"
+  - "show routing"
+  - "show route"
+  - "show router"
+
+  # --- Interfaces ---
+  - "show interfaces"
+  - "show interface"
+  - "show port"
+
+  # --- MPLS ---
+  - "show mpls"
+
+  # --- LLDP / Neighbors ---
+  - "show lldp"
+  - "show lldp neighbors"
+
+  # --- LAG / Link aggregation ---
+  - "show lag"
+
+  # --- System / Platform ---
+  - "show system"
+  - "show version"
+  - "show chassis"
+  - "show running-config"
+  - "show startup-config"
+  - "show inventory"
+
+  # --- Logging ---
+  - "show log"
+
+  # --- Services / Network instances ---
+  - "show service"
+  - "show network-instance"
+
+  # --- Nokia display family (SR OS classic CLI) ---
+  - "display version"
+  - "display interfaces"
+  - "display bgp"
+  - "display ip routing-table"
+  - "display mpls"
+  - "display lldp"
+
+  # --- Diagnostics ---
+  - "ping"
+  - "traceroute"
