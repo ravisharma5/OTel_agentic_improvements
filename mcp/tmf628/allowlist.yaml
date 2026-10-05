@@ -1,0 +1,14 @@
+server_name: "mcp-tmf628"
+spec_path: "specs/tmf628_performance_v4.0.0.swagger.json"
+backend_env_var: "TMF628_BASE_URL"
+operations:
+  - path: "/measurementCollectionJob"
+    methods: ["GET"]
+  - path: "/measurementCollectionJob/{id}"
+    methods: ["GET"]
+  - path: "/onDemandCollection"
+    methods: ["POST"]
+  - path: "/trackingRecord"
+    methods: ["GET"]
+  - path: "/trackingRecord/{id}"
+    methods: ["GET"]

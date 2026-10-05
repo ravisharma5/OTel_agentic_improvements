@@ -1,0 +1,18 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mcp-tmf621"
+version = "0.1.0"
+description = "TMF621 Trouble Ticket MCP server (4 tools)"
+requires-python = ">=3.12"
+dependencies = [
+    "fastmcp>=4.0.11",
+    "httpx2>=2.13.1",
+    "pyyaml>=6.0.3",
+    "uvicorn>=0.34.3",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["."]
