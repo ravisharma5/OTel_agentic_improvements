@@ -3,10 +3,16 @@
 # Exits 1 if any drift is detected.
 set -euo pipefail
 
-GATEWAY_URL="https://mcp.apps.cluster-wfhjs.wfhjs.sandbox1330.opentlc.com/mcp"
-KEYCLOAK_URL="https://mcp-keycloak-otel25-gateway.apps.cluster-wfhjs.wfhjs.sandbox1330.opentlc.com"
-CLIENT_SECRET="***REDACTED-CLIENT-SECRET***"
-USER_PASSWORD="***REDACTED-PASSWORD***"
+GATEWAY_HOST=$(oc get gateway mcp-gateway -n otel25-gateway -o jsonpath='{.status.addresses[0].value}' 2>/dev/null)
+GATEWAY_URL="http://${GATEWAY_HOST}/mcp"
+KEYCLOAK_URL="https://$(oc get route mcp-keycloak -n otel25-gateway -o jsonpath='{.spec.host}')"
+CLIENT_SECRET=$(oc get secret keycloak-client-secret-mcp-gateway -n otel25-gateway -o jsonpath='{.data.CLIENT_SECRET}' | base64 -d)
+USER_PASSWORD=$(oc get secret keycloak-client-secret-mcp-gateway -n otel25-gateway -o jsonpath='{.data.USER_PASSWORD}' | base64 -d)
+
+if [ -z "$GATEWAY_HOST" ] || [ -z "$CLIENT_SECRET" ] || [ -z "$USER_PASSWORD" ]; then
+  echo "ERROR: Could not resolve gateway host or Keycloak credentials from the cluster (is oc authenticated against the right cluster/namespace?)"
+  exit 1
+fi
 
 # Get fresh token
 TOKEN=$(curl -sk -X POST "${KEYCLOAK_URL}/realms/mcp/protocol/openid-connect/token" \

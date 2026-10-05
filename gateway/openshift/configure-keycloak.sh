@@ -132,7 +132,6 @@ echo "  Client secret retrieved (${#CLIENT_SECRET} chars)"
 
 # --- Step 7: Create test user "mcp-agent" (skip if exists) ---
 echo "[7/8] Creating test user 'mcp-agent'..."
-USER_PASSWORD="***REDACTED-PASSWORD***"
 
 EXISTING_USERS=$(curl -sk \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
@@ -143,7 +142,20 @@ USER_COUNT=$(echo "$EXISTING_USERS" | python3 -c "import sys,json; print(len(jso
 if [ "$USER_COUNT" != "0" ]; then
   echo "  User 'mcp-agent' already exists, skipping creation."
   USER_UUID=$(echo "$EXISTING_USERS" | python3 -c "import sys,json; print(json.load(sys.stdin)[0]['id'])")
+  # Reuse the password already stored in the k8s Secret (if present) so re-running
+  # this script against an existing user doesn't silently invalidate a password
+  # other tooling may already be using.
+  USER_PASSWORD=$(oc get secret keycloak-client-secret-mcp-gateway -n "$NAMESPACE" -o jsonpath='{.data.USER_PASSWORD}' 2>/dev/null | base64 -d || true)
+  if [ -z "$USER_PASSWORD" ]; then
+    USER_PASSWORD=$(openssl rand -base64 18)
+    echo "  No existing USER_PASSWORD found in Secret -- generated a new one and will reset the user's credential."
+    curl -sk -X PUT "${KEYCLOAK_URL}/admin/realms/mcp/users/${USER_UUID}/reset-password" \
+      -H "Authorization: Bearer $ADMIN_TOKEN" \
+      -H "Content-Type: application/json" \
+      -d "{\"type\": \"password\", \"value\": \"${USER_PASSWORD}\", \"temporary\": false}" > /dev/null
+  fi
 else
+  USER_PASSWORD=$(openssl rand -base64 18)
   # Keycloak 26+ requires email, firstName, lastName via User Profile
   curl -sk -X POST "${KEYCLOAK_URL}/admin/realms/mcp/users" \
     -H "Authorization: Bearer $ADMIN_TOKEN" \

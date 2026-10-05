@@ -1,13 +1,9 @@
 # Ephemeral PostgreSQL for Keycloak (WG training pipeline, not production)
-apiVersion: v1
-kind: Secret
-metadata:
-  name: keycloak-db-secret
-  namespace: otel25-gateway
-type: Opaque
-stringData:
-  username: keycloak
-  password: ***REDACTED-DB-PASSWORD***
+#
+# The keycloak-db-secret Secret is deliberately NOT defined here with a real value.
+# Create it before applying this manifest with gateway/openshift/create-keycloak-db-secret.sh,
+# which generates a random password and is idempotent (safe to re-run; it will not
+# overwrite an existing secret, so Postgres data isn't orphaned by a password change).
 ---
 apiVersion: apps/v1
 kind: Deployment
