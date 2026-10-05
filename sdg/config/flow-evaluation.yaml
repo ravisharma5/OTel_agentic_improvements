@@ -1,0 +1,63 @@
+# sdg_hub MCP Distillation Evaluation Flow Overrides
+# ====================================================
+#
+# EVALUATION FLOW CONFIGURATION
+# -----------------------------
+# Overrides the default flow.yaml from sdg_hub's mcp_distillation_evaluation
+# example flow. Configures metrics for automated scoring and semantic judge
+# dimensions for LLM-based quality assessment of generated tool-calling traces.
+#
+# ENV-VAR INTERPOLATION CONVENTION
+# ---------------------------------
+# Values like ${VLLM_API_KEY} are NOT expanded by yaml.safe_load().
+# The pipeline scripts (run-generation.py, run-evaluation.py) and notebooks
+# use sdg/scripts/load_config.py to load these files with
+# os.path.expandvars() on string values before passing to sdg_hub.
+#
+# NOTE (D-04): OSFT schema validation is NOT a flow block. It runs
+# automatically in run-evaluation.py after this flow completes.
+# See 04-07-PLAN.md Task 1.
+#
+# References:
+#   D-02: mcp_distillation_evaluation flow for three-stage verification
+#   D-04 (amended): OSFT validation in run-evaluation.py, not as a flow block
+#   D-11: Semantic judge model choice (Claude's discretion -- defaults to same Gemma 4)
+
+# ─── Judge Model ────────────────────────────────────────────────────────────
+# The semantic judge reuses the same Gemma 4 instance as the teacher model
+# (D-11: judge model choice left to Claude's discretion; reusing the same
+# instance avoids deploying a second model and is sdg_hub's default behavior).
+
+model_config:
+  model: hosted_vllm/google/gemma-4-31B-it
+  api_key: "${VLLM_API_KEY}"
+  api_base: "${VLLM_API_BASE:-http://vllm-gemma4.rhoai-sdg.svc:8000/v1}"
+
+# ─── Automated Metrics ──────────────────────────────────────────────────────
+# These are computed programmatically (no LLM call) by the evaluation flow's
+# metric blocks. Each metric produces a 0.0-1.0 score per row.
+
+metrics:
+  - tool_recall       # Did the model call all required tools?
+  - tool_precision    # Did the model avoid calling unnecessary tools?
+  - order_match       # Were tools called in the correct order (for sequential/closed-loop)?
+  - parameter_match   # Were tool parameters filled correctly?
+
+# ─── Semantic Judge Dimensions ───────────────────────────────────────────────
+# The LLM judge scores each trace on these 6 dimensions (1-10 scale).
+# Only traces with an average score >= judge_threshold are kept.
+
+judge_dimensions:
+  - task_fulfillment         # Did the agent fully complete the user's request?
+  - grounding                # Are all claims supported by tool call results?
+  - tool_appropriateness     # Were the right tools chosen for the task?
+  - parameter_accuracy       # Were tool parameters correct and complete?
+  - dependency_awareness     # Were tool dependencies respected (e.g., list before get)?
+  - parallelism_efficiency   # Were independent tools called in parallel when possible?
+
+# ─── Quality Threshold ──────────────────────────────────────────────────────
+# Minimum average score across all 6 judge dimensions for a trace to pass.
+# Traces below this threshold are filtered out of the final dataset.
+# Scale: 1-10; 7.0 is a reasonable starting point for production quality.
+
+judge_threshold: 7.0
