@@ -147,7 +147,7 @@ if [ "$USER_COUNT" != "0" ]; then
   # other tooling may already be using.
   USER_PASSWORD=$(oc get secret keycloak-client-secret-mcp-gateway -n "$NAMESPACE" -o jsonpath='{.data.USER_PASSWORD}' 2>/dev/null | base64 -d || true)
   if [ -z "$USER_PASSWORD" ]; then
-    USER_PASSWORD=$(openssl rand -base64 18)
+    USER_PASSWORD=$(openssl rand -hex 18)
     echo "  No existing USER_PASSWORD found in Secret -- generated a new one and will reset the user's credential."
     curl -sk -X PUT "${KEYCLOAK_URL}/admin/realms/mcp/users/${USER_UUID}/reset-password" \
       -H "Authorization: Bearer $ADMIN_TOKEN" \
@@ -155,7 +155,7 @@ if [ "$USER_COUNT" != "0" ]; then
       -d "{\"type\": \"password\", \"value\": \"${USER_PASSWORD}\", \"temporary\": false}" > /dev/null
   fi
 else
-  USER_PASSWORD=$(openssl rand -base64 18)
+  USER_PASSWORD=$(openssl rand -hex 18)
   # Keycloak 26+ requires email, firstName, lastName via User Profile
   curl -sk -X POST "${KEYCLOAK_URL}/admin/realms/mcp/users" \
     -H "Authorization: Bearer $ADMIN_TOKEN" \

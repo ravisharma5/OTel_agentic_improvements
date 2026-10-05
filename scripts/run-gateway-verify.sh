@@ -3,9 +3,9 @@
 set -euo pipefail
 
 MODE="${1:-all}"
-GATEWAY_HOST=$(oc get gateway mcp-gateway -n otel25-gateway -o jsonpath='{.status.addresses[0].value}' 2>/dev/null)
-GATEWAY_URL="http://${GATEWAY_HOST}/mcp"
-KEYCLOAK_URL="https://$(oc get route mcp-keycloak -n otel25-gateway -o jsonpath='{.spec.host}')"
+GATEWAY_HOST=$(oc get route mcp-gateway -n otel25-gateway -o jsonpath='{.spec.host}' 2>/dev/null)
+GATEWAY_URL="https://${GATEWAY_HOST}/mcp"
+KEYCLOAK_URL="https://$(oc get route -n otel25-gateway -l app=keycloak -o jsonpath='{.items[0].spec.host}')"
 CLIENT_SECRET=$(oc get secret keycloak-client-secret-mcp-gateway -n otel25-gateway -o jsonpath='{.data.CLIENT_SECRET}' | base64 -d)
 USER_PASSWORD=$(oc get secret keycloak-client-secret-mcp-gateway -n otel25-gateway -o jsonpath='{.data.USER_PASSWORD}' | base64 -d)
 
