@@ -1,0 +1,43 @@
+# Containerlab topology for MCP-Telecom basic 3-node Nokia SRL ring
+# Generated from ContainerlabManager.generate_test_scenario("basic")
+#
+# Deploy:
+#   sudo containerlab deploy -t containerlab-topology.yaml
+#
+# Clabernetes on OpenShift:
+#   clabverter --stdout --naming non-prefixed < containerlab-topology.yaml | oc apply -n c9s -f -
+#
+# Nodes: r1, r2, r3 (Nokia SR Linux) in a ring topology
+# Management subnet: 172.20.20.0/24
+#   r1 -> 172.20.20.2
+#   r2 -> 172.20.20.3
+#   r3 -> 172.20.20.4
+
+name: mcp-telecom-basic
+mgmt:
+  network: clab
+  ipv4-subnet: 172.20.20.0/24
+topology:
+  nodes:
+    r1:
+      kind: nokia_srlinux
+      image: ghcr.io/nokia/srlinux:latest
+      startup-config: configs/r1.cfg
+    r2:
+      kind: nokia_srlinux
+      image: ghcr.io/nokia/srlinux:latest
+      startup-config: configs/r2.cfg
+    r3:
+      kind: nokia_srlinux
+      image: ghcr.io/nokia/srlinux:latest
+      startup-config: configs/r3.cfg
+  links:
+  - endpoints:
+    - r1:eth1
+    - r2:eth1
+  - endpoints:
+    - r2:eth2
+    - r3:eth1
+  - endpoints:
+    - r3:eth2
+    - r1:eth2

@@ -4,12 +4,14 @@
 # This file defines the network devices MCP-Telecom can interact with.
 # Copy this file to devices.yaml and update with your actual device details.
 #
+# DeviceManager.load_config() expects a top-level dict keyed by device name.
+# Each device must have: host, device_type, port, timeout, username, password.
+#
 # CREDENTIAL MANAGEMENT (OpenShift Deployment)
 # ---------------------------------------------
-# The `credential_secret_ref` field references an OpenShift Secret by name.
-# When deployed on OpenShift, the Secret's keys are mounted as environment
-# variables or files inside the pod. Credentials NEVER appear as plaintext
-# in ConfigMaps, YAML files, or version control.
+# The `credential_secret_ref` comment below documents which OpenShift
+# Secret holds credentials for this device. In production, credentials
+# should NEVER appear as plaintext in YAML files or version control.
 #
 # Example Secret (applied separately, not committed to git):
 #   apiVersion: v1
@@ -27,26 +29,32 @@
 # The Deployment manifest mounts this Secret and the server reads
 # credentials from the corresponding environment variables at runtime.
 
-devices:
-  # Example device entry -- replace with real device details in Phase 4
-  - hostname: "router-lab-01.example.com"
-    platform: "cisco_ios"
-    device_type: "router"
-    port: 22
-    timeout: 30
-    credential_secret_ref: "mcp-telecom-device-creds"
+# --- Example: Cisco IOS router ---
+router-lab-01:
+  host: "router-lab-01.example.com"
+  device_type: "cisco_ios"
+  port: 22
+  timeout: 30
+  username: "${CISCO_USERNAME}"
+  password: "${CISCO_PASSWORD}"
+  # credential_secret_ref: mcp-telecom-device-creds
 
-  # Additional device entries follow the same structure:
-  # - hostname: "switch-dc-01.example.com"
-  #   platform: "arista_eos"
-  #   device_type: "switch"
-  #   port: 22
-  #   timeout: 30
-  #   credential_secret_ref: "mcp-telecom-device-creds"
-  #
-  # - hostname: "pe-edge-01.example.com"
-  #   platform: "nokia_sros"
-  #   device_type: "router"
-  #   port: 22
-  #   timeout: 30
-  #   credential_secret_ref: "mcp-telecom-device-creds"
+# --- Example: Arista EOS switch ---
+switch-dc-01:
+  host: "switch-dc-01.example.com"
+  device_type: "arista_eos"
+  port: 22
+  timeout: 30
+  username: "${ARISTA_USERNAME}"
+  password: "${ARISTA_PASSWORD}"
+  # credential_secret_ref: mcp-telecom-device-creds
+
+# --- Example: Nokia SR OS router ---
+pe-edge-01:
+  host: "pe-edge-01.example.com"
+  device_type: "nokia_sros"
+  port: 22
+  timeout: 30
+  username: "${NOKIA_USERNAME}"
+  password: "${NOKIA_PASSWORD}"
+  # credential_secret_ref: mcp-telecom-device-creds
