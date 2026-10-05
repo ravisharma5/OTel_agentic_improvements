@@ -1,0 +1,46 @@
+# Gateway API Gateway object for MCP traffic
+# Two listeners required by RHCL MCP Gateway:
+#   mcp  - external MCP protocol traffic (clients connect here)
+#   mcps - internal backend routing to MCP servers (wildcard *.mcp.local)
+# Reference: rh-aiservices-bu/mcp-gateway-guide Phase 2
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: mcp-gateway
+  namespace: otel25-gateway
+spec:
+  gatewayClassName: istio
+  listeners:
+  - name: mcp
+    hostname: mcp.apps.cluster-wfhjs.wfhjs.sandbox1330.opentlc.com
+    port: 8080
+    protocol: HTTP
+    allowedRoutes:
+      namespaces:
+        from: All
+  - name: mcps
+    hostname: "*.mcp.local"
+    port: 8080
+    protocol: HTTP
+    allowedRoutes:
+      namespaces:
+        from: All
+---
+# OpenShift Route for external access to the MCP Gateway
+# The istio GatewayClass creates a LoadBalancer service; this Route bridges
+# external traffic through the default HAProxy ingress controller.
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: mcp-gateway
+  namespace: otel25-gateway
+spec:
+  host: mcp.apps.cluster-wfhjs.wfhjs.sandbox1330.opentlc.com
+  to:
+    kind: Service
+    name: mcp-gateway-istio
+  port:
+    targetPort: 8080
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect

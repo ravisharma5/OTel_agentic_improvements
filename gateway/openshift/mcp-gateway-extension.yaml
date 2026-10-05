@@ -1,0 +1,16 @@
+# MCPGatewayExtension -- extends the Gateway with MCP protocol support
+# Targets the "mcp" listener on the Gateway, auto-creates /mcp HTTPRoute
+# Reference: rh-aiservices-bu/mcp-gateway-guide Phase 3
+apiVersion: mcp.kuadrant.io/v1alpha1
+kind: MCPGatewayExtension
+metadata:
+  name: mcp-gateway-ext
+  namespace: otel25-gateway
+spec:
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: Gateway
+    name: mcp-gateway
+    namespace: otel25-gateway
+    sectionName: mcp
+  httpRouteManagement: Enabled
