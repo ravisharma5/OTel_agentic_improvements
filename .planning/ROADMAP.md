@@ -114,16 +114,16 @@ Plans:
   3. 5,000-10,000 high-quality verified examples are produced from an initial 8,500-14,000 raw generation run, with quality metrics and coverage statistics
   4. Filtered dataset is delivered to Farbod's team in their required OSFT-compatible JSONL format, validated by the training team
 
-**Plans:** 7 plans
+**Plans:** 5/7 plans executed
 
 Plans:
 **Wave 1** *(all parallel -- no shared files)*
 
-- [ ] 04-01-PLAN.md -- Security fixes CR-01/02/03: allowlist enforcement, interface sanitization, path containment
-- [ ] 04-02-PLAN.md -- NWDAF h2c transport fix and ConfigMap consolidation with sync script
-- [ ] 04-03-PLAN.md -- Prism spec enrichment with realistic telecom example values
-- [ ] 04-04-PLAN.md -- OSFT JSONL serializer (single-turn + multi-turn) and schema validator
-- [ ] 04-05-PLAN.md -- SDG pipeline infrastructure: vLLM/Langflow scripts, flow configs, curriculum seeds, README
+- [x] 04-01-PLAN.md -- Security fixes CR-01/02/03: allowlist enforcement, interface sanitization, path containment
+- [x] 04-02-PLAN.md -- NWDAF h2c transport fix and ConfigMap consolidation with sync script
+- [x] 04-03-PLAN.md -- Prism spec enrichment with realistic telecom example values
+- [x] 04-04-PLAN.md -- OSFT JSONL serializer (single-turn + multi-turn) and schema validator
+- [x] 04-05-PLAN.md -- SDG pipeline infrastructure: vLLM/Langflow scripts, flow configs, curriculum seeds, README
 
 **Wave 2** *(blocked on Wave 1 Plan 01)*
 
@@ -159,5 +159,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4. Phase 5 runs in parallel.
 | 1. Backend Infrastructure | 4/4 | Complete    | 2026-10-02 |
 | 2. MCP Tooling Foundation | 3/3 | Complete    | 2026-10-04 |
 | 3. MCP Domain Servers and Gateway | 6/6 | Complete    | 2026-10-05 |
-| 4. SDG Pipeline and Dataset Production | 0/7 | Not started | - |
+| 4. SDG Pipeline and Dataset Production | 5/7 | In Progress|  |
 | 5. Industry Gaps Document | 0/1 | Not started | - |
