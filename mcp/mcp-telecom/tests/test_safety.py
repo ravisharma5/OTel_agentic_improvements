@@ -1,7 +1,9 @@
 """Tests for command safety validation."""
 
 import pytest
+import yaml
 
+from mcp_telecom import safety
 from mcp_telecom.safety import is_safe_command, validate_command
 
 
@@ -65,6 +67,16 @@ class TestIsSafeCommand:
 
 
 class TestValidateCommand:
+    @pytest.fixture(autouse=True)
+    def _provision_allowlist(self, tmp_path, monkeypatch):
+        """Provision a populated allowlist so deny-by-default doesn't block safe commands."""
+        allowlist_file = tmp_path / "test_allowlist.yaml"
+        allowlist_file.write_text(
+            yaml.dump({"allowed_commands": ["show", "display", "ping", "traceroute"]})
+        )
+        monkeypatch.setenv("MCP_TELECOM_ALLOWLIST_FILE", str(allowlist_file))
+        safety._allowlist_cache = None
+
     def test_safe_command_returns_none(self):
         assert validate_command("show version") is None
 

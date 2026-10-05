@@ -1,152 +1,133 @@
-"""Tests for command allowlist enforcement.
+"""Tests for command allowlist enforcement in production safety.py.
 
-Verifies the deny-by-default command allowlist scaffold (D-10a):
-- Empty allowlist rejects all commands
-- Populated allowlist accepts listed commands
-- Populated allowlist rejects unlisted commands
+Verifies the deny-by-default command allowlist (CR-01):
+- Empty allowlist rejects all commands (via validate_command)
+- Populated allowlist accepts listed commands (via validate_command)
+- Populated allowlist rejects unlisted commands (via validate_command)
+- _load_allowlist() reads YAML files correctly
 """
 
 from __future__ import annotations
 
-import os
-import tempfile
-from pathlib import Path
-
 import yaml
 
-
-def load_allowlist(allowlist_path: str | Path) -> list[str]:
-    """Load the command allowlist from a YAML file.
-
-    Returns the list of allowed command prefixes. An empty list
-    means all commands are denied (deny-by-default).
-    """
-    path = Path(allowlist_path)
-    if not path.exists():
-        return []
-    data = yaml.safe_load(path.read_text())
-    if data is None:
-        return []
-    return data.get("allowed_commands", []) or []
-
-
-def check_command_allowed(command: str, allowlist: list[str]) -> bool:
-    """Check if a command is permitted by the allowlist.
-
-    Returns True only if the command starts with one of the allowed
-    command prefixes. When the allowlist is empty, all commands are
-    denied (deny-by-default).
-    """
-    if not allowlist:
-        return False
-    cmd = command.strip().lower()
-    return any(cmd.startswith(prefix.lower()) for prefix in allowlist)
+from mcp_telecom.safety import _load_allowlist, validate_command
+from mcp_telecom import safety
 
 
 class TestAllowlistDenyByDefault:
     """Test that an empty allowlist rejects all commands."""
 
-    def test_empty_allowlist_rejects_show_command(self):
-        """Empty allowlist must reject even safe 'show' commands."""
-        allowlist: list[str] = []
-        assert check_command_allowed("show bgp summary", allowlist) is False
+    def test_empty_allowlist_rejects_show_command(self, monkeypatch):
+        """Empty allowlist must reject even safe 'show' commands via validate_command."""
+        monkeypatch.setenv("MCP_TELECOM_ALLOWLIST_FILE", "/tmp/nonexistent_allowlist_99999.yaml")
+        safety._allowlist_cache = None
+        result = validate_command("show bgp summary")
+        assert result is not None
+        assert "allowlist" in result.lower()
 
-    def test_empty_allowlist_rejects_ping(self):
-        """Empty allowlist must reject ping commands."""
-        allowlist: list[str] = []
-        assert check_command_allowed("ping 10.0.0.1", allowlist) is False
+    def test_empty_allowlist_rejects_ping(self, monkeypatch):
+        """Empty allowlist must reject ping commands via validate_command."""
+        monkeypatch.setenv("MCP_TELECOM_ALLOWLIST_FILE", "/tmp/nonexistent_allowlist_99999.yaml")
+        safety._allowlist_cache = None
+        result = validate_command("ping 10.0.0.1")
+        assert result is not None
+        assert "allowlist" in result.lower()
 
-    def test_empty_allowlist_rejects_config_command(self):
-        """Empty allowlist must reject configuration commands."""
-        allowlist: list[str] = []
-        assert check_command_allowed("configure terminal", allowlist) is False
-
-    def test_empty_allowlist_from_yaml_file(self):
-        """Loading the actual scaffold file should produce an empty allowlist."""
-        scaffold_path = (
-            Path(__file__).parent.parent / "command_allowlist.yaml"
-        )
-        if scaffold_path.exists():
-            allowlist = load_allowlist(scaffold_path)
-            assert allowlist == []
-            assert check_command_allowed("show interfaces", allowlist) is False
+    def test_empty_allowlist_from_yaml_file(self, tmp_path, monkeypatch):
+        """Loading the actual scaffold (empty allowed_commands) denies commands."""
+        allowlist_file = tmp_path / "allowlist.yaml"
+        allowlist_file.write_text(yaml.dump({"allowed_commands": []}))
+        monkeypatch.setenv("MCP_TELECOM_ALLOWLIST_FILE", str(allowlist_file))
+        safety._allowlist_cache = None
+        result = validate_command("show interfaces")
+        assert result is not None
+        assert "allowlist" in result.lower()
 
 
 class TestAllowlistAcceptsListed:
     """Test that a populated allowlist accepts listed commands."""
 
-    def test_exact_match_accepted(self):
-        """Command matching an allowlist entry exactly is accepted."""
-        allowlist = ["show bgp summary", "show interfaces", "ping"]
-        assert check_command_allowed("show bgp summary", allowlist) is True
-
-    def test_prefix_match_accepted(self):
+    def test_prefix_match_accepted(self, tmp_path, monkeypatch):
         """Command starting with an allowlist prefix is accepted."""
-        allowlist = ["show bgp", "ping"]
-        assert check_command_allowed("show bgp neighbors", allowlist) is True
+        allowlist_file = tmp_path / "allowlist.yaml"
+        allowlist_file.write_text(yaml.dump({"allowed_commands": ["show bgp", "ping"]}))
+        monkeypatch.setenv("MCP_TELECOM_ALLOWLIST_FILE", str(allowlist_file))
+        safety._allowlist_cache = None
+        assert validate_command("show bgp summary") is None
 
-    def test_ping_with_args_accepted(self):
+    def test_ping_with_args_accepted(self, tmp_path, monkeypatch):
         """Ping with arguments accepted when 'ping' is allowlisted."""
-        allowlist = ["ping"]
-        assert check_command_allowed("ping 192.168.1.1", allowlist) is True
+        allowlist_file = tmp_path / "allowlist.yaml"
+        allowlist_file.write_text(yaml.dump({"allowed_commands": ["ping", "show"]}))
+        monkeypatch.setenv("MCP_TELECOM_ALLOWLIST_FILE", str(allowlist_file))
+        safety._allowlist_cache = None
+        assert validate_command("ping 192.168.1.1") is None
 
-    def test_case_insensitive_match(self):
+    def test_case_insensitive_match(self, tmp_path, monkeypatch):
         """Allowlist matching should be case-insensitive."""
-        allowlist = ["Show BGP Summary"]
-        assert check_command_allowed("show bgp summary", allowlist) is True
+        allowlist_file = tmp_path / "allowlist.yaml"
+        allowlist_file.write_text(yaml.dump({"allowed_commands": ["Show BGP"]}))
+        monkeypatch.setenv("MCP_TELECOM_ALLOWLIST_FILE", str(allowlist_file))
+        safety._allowlist_cache = None
+        assert validate_command("show bgp summary") is None
 
 
 class TestAllowlistRejectsUnlisted:
     """Test that a populated allowlist rejects unlisted commands."""
 
-    def test_unlisted_show_command_rejected(self):
+    def test_unlisted_show_command_rejected(self, tmp_path, monkeypatch):
         """Show command not in allowlist is rejected."""
-        allowlist = ["show bgp summary", "ping"]
-        assert check_command_allowed("show routing table", allowlist) is False
+        allowlist_file = tmp_path / "allowlist.yaml"
+        allowlist_file.write_text(yaml.dump({"allowed_commands": ["show bgp", "ping"]}))
+        monkeypatch.setenv("MCP_TELECOM_ALLOWLIST_FILE", str(allowlist_file))
+        safety._allowlist_cache = None
+        result = validate_command("show ospf neighbors")
+        assert result is not None
+        assert "allowlist" in result.lower()
 
-    def test_config_command_rejected(self):
-        """Configuration commands are always rejected by allowlist."""
-        allowlist = ["show bgp summary", "show interfaces"]
-        assert check_command_allowed("configure terminal", allowlist) is False
+    def test_config_command_still_blocked_by_safety(self, tmp_path, monkeypatch):
+        """Configuration commands blocked by safety check before allowlist."""
+        allowlist_file = tmp_path / "allowlist.yaml"
+        allowlist_file.write_text(yaml.dump({"allowed_commands": ["show bgp", "ping"]}))
+        monkeypatch.setenv("MCP_TELECOM_ALLOWLIST_FILE", str(allowlist_file))
+        safety._allowlist_cache = None
+        result = validate_command("configure terminal")
+        assert result is not None
+        assert "blocked" in result.lower()
 
-    def test_similar_but_different_command_rejected(self):
-        """Command similar to but not matching allowlist entry is rejected."""
-        allowlist = ["show bgp summary"]
-        assert check_command_allowed("show ospf neighbors", allowlist) is False
-
-    def test_empty_command_rejected(self):
-        """Empty command string is rejected."""
-        allowlist = ["show bgp summary"]
-        assert check_command_allowed("", allowlist) is False
+    def test_empty_command_still_returns_empty_error(self):
+        """Empty command string returns 'Empty command' error (before allowlist)."""
+        result = validate_command("")
+        assert result is not None
+        assert "Empty command" in result
 
 
 class TestAllowlistYAMLLoading:
-    """Test YAML file loading for the allowlist."""
+    """Test YAML file loading for the allowlist via _load_allowlist."""
 
-    def test_load_empty_allowlist_file(self):
+    def test_load_empty_allowlist_file(self, tmp_path, monkeypatch):
         """Loading a YAML file with empty allowed_commands returns []."""
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        ) as f:
-            yaml.dump({"allowed_commands": []}, f)
-            f.flush()
-            allowlist = load_allowlist(f.name)
-        os.unlink(f.name)
+        allowlist_file = tmp_path / "allowlist.yaml"
+        allowlist_file.write_text(yaml.dump({"allowed_commands": []}))
+        monkeypatch.setenv("MCP_TELECOM_ALLOWLIST_FILE", str(allowlist_file))
+        safety._allowlist_cache = None
+        allowlist = _load_allowlist()
         assert allowlist == []
 
-    def test_load_populated_allowlist_file(self):
+    def test_load_populated_allowlist_file(self, tmp_path, monkeypatch):
         """Loading a YAML file with entries returns the command list."""
         commands = ["show bgp summary", "show interfaces", "ping"]
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".yaml", delete=False
-        ) as f:
-            yaml.dump({"allowed_commands": commands}, f)
-            f.flush()
-            allowlist = load_allowlist(f.name)
-        os.unlink(f.name)
+        allowlist_file = tmp_path / "allowlist.yaml"
+        allowlist_file.write_text(yaml.dump({"allowed_commands": commands}))
+        monkeypatch.setenv("MCP_TELECOM_ALLOWLIST_FILE", str(allowlist_file))
+        safety._allowlist_cache = None
+        allowlist = _load_allowlist()
         assert allowlist == commands
 
-    def test_load_nonexistent_file_returns_empty(self):
+    def test_load_nonexistent_file_returns_empty(self, monkeypatch):
         """Loading a nonexistent file returns an empty allowlist."""
-        allowlist = load_allowlist("/tmp/nonexistent_allowlist_12345.yaml")
+        monkeypatch.setenv("MCP_TELECOM_ALLOWLIST_FILE", "/tmp/nonexistent_allowlist_12345.yaml")
+        safety._allowlist_cache = None
+        allowlist = _load_allowlist()
         assert allowlist == []
