@@ -1,0 +1,15 @@
+# MCPServerRegistration: register TMF642 alarm management MCP server
+# Prefix "tmf642" -- all discovered tools prefixed with tmf642_ (e.g. tmf642_list_alarms)
+# targetRef points to the HTTPRoute that routes to mcp-tmf642 backend
+apiVersion: mcp.kuadrant.io/v1alpha1
+kind: MCPServerRegistration
+metadata:
+  name: tmf642
+  namespace: otel25-gateway
+spec:
+  prefix: tmf642
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: mcp-tmf642-route
+  path: /mcp

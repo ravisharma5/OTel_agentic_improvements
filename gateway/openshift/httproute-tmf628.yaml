@@ -1,0 +1,20 @@
+# HTTPRoute: route MCP traffic to TMF628 performance management backend
+# Points to mcp-tmf628 Service in otel25-mcp (cross-namespace via ReferenceGrant)
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: mcp-tmf628-route
+  namespace: otel25-gateway
+  labels:
+    mcp-server: "true"
+spec:
+  hostnames:
+  - tmf628.mcp.local
+  parentRefs:
+  - name: mcp-gateway
+    namespace: otel25-gateway
+  rules:
+  - backendRefs:
+    - name: mcp-tmf628
+      namespace: otel25-mcp
+      port: 8000
