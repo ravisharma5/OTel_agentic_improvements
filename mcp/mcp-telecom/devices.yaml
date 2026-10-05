@@ -20,17 +20,21 @@
 #     CLAB_DEVICE_USERNAME: YWRtaW4=       # admin
 #     CLAB_DEVICE_PASSWORD: Tm9raWFTcmwxIQ==  # NokiaSrl1!
 #
-# When deployed via Clabernetes on OpenShift, update hosts to Kubernetes
-# service names:
-#   r1: host: "r1.c9s.svc.cluster.local"
-#   r2: host: "r2.c9s.svc.cluster.local"
-#   r3: host: "r3.c9s.svc.cluster.local"
+# Deployed via Clabernetes on OpenShift (namespace c9s). Hosts use the
+# per-node Clabernetes LoadBalancer Service's in-cluster DNS name
+# (ClusterIP is reachable cluster-wide even though EXTERNAL-IP is <pending>
+# on this sandbox cluster with no cloud LB provisioner):
+#   mcp-telecom-basic-r1.c9s.svc.cluster.local
+#   mcp-telecom-basic-r2.c9s.svc.cluster.local
+#   mcp-telecom-basic-r3.c9s.svc.cluster.local
+# Verified 2026-10-05: SSH banner + authenticated `show version` succeeded
+# against r1 from the mcp-telecom pod in otel25-mcp.
 #
 # DeviceManager.load_config() expects a top-level dict keyed by device name.
 # Each device must have: host, device_type, port, timeout, username, password.
 
 r1:
-  host: "172.20.20.2"
+  host: "mcp-telecom-basic-r1.c9s.svc.cluster.local"
   device_type: "nokia_sros"
   port: 22
   timeout: 30
@@ -38,7 +42,7 @@ r1:
   password: "NokiaSrl1!"
 
 r2:
-  host: "172.20.20.3"
+  host: "mcp-telecom-basic-r2.c9s.svc.cluster.local"
   device_type: "nokia_sros"
   port: 22
   timeout: 30
@@ -46,7 +50,7 @@ r2:
   password: "NokiaSrl1!"
 
 r3:
-  host: "172.20.20.4"
+  host: "mcp-telecom-basic-r3.c9s.svc.cluster.local"
   device_type: "nokia_sros"
   port: 22
   timeout: 30

@@ -1,11 +1,28 @@
 # Containerlab topology for MCP-Telecom basic 3-node Nokia SRL ring
-# Generated from ContainerlabManager.generate_test_scenario("basic")
+# Generated from ContainerlabManager.generate_test_scenario("basic"), then hand-corrected
+# after live deployment testing against Clabernetes 0.6.0 / containerlab 0.74.3 (2026-10-05):
+#
+#   1. Removed `startup-config: configs/r*.cfg` -- these files were never generated
+#      anywhere in the repo; containerlab failed trying to load a nonexistent file.
+#      Nokia SR Linux boots fine with factory-default config without one.
+#   2. Renamed link endpoints from generic `eth1`/`eth2` to Nokia SR Linux's native
+#      `e1-1`/`e1-2` format. containerlab 0.74.3 does NOT auto-translate generic
+#      ethN names for the nokia_srlinux kind -- it requires the native
+#      ethernet-L/P (or eL-P) pattern directly and errors otherwise. This is a
+#      pre-existing limitation of containerlab.py's generic `_next_eth()` helper
+#      (mcp/mcp-telecom/src/mcp_telecom/containerlab.py:60-63), which emits plain
+#      `ethN` for every vendor kind -- not something introduced by this change.
+#      Future scenarios using nokia_srlinux should account for this until/unless
+#      `_next_eth()` is made kind-aware.
 #
 # Deploy:
 #   sudo containerlab deploy -t containerlab-topology.yaml
 #
-# Clabernetes on OpenShift:
-#   clabverter --stdout --naming non-prefixed < containerlab-topology.yaml | oc apply -n c9s -f -
+# Clabernetes on OpenShift (verified working 2026-10-05, namespace c9s):
+#   oc apply -f <Topology CR wrapping this file's content under spec.definition.containerlab>
+#   (clabverter was unavailable in the deployment environment; the Topology CR's
+#   spec.definition.containerlab field accepts this raw containerlab YAML directly,
+#   so clabverter is not strictly required -- see clabernetes.containerlab.dev/v1alpha1 CRD)
 #
 # Nodes: r1, r2, r3 (Nokia SR Linux) in a ring topology
 # Management subnet: 172.20.20.0/24
@@ -22,22 +39,19 @@ topology:
     r1:
       kind: nokia_srlinux
       image: ghcr.io/nokia/srlinux:latest
-      startup-config: configs/r1.cfg
     r2:
       kind: nokia_srlinux
       image: ghcr.io/nokia/srlinux:latest
-      startup-config: configs/r2.cfg
     r3:
       kind: nokia_srlinux
       image: ghcr.io/nokia/srlinux:latest
-      startup-config: configs/r3.cfg
   links:
   - endpoints:
-    - r1:eth1
-    - r2:eth1
+    - r1:e1-1
+    - r2:e1-1
   - endpoints:
-    - r2:eth2
-    - r3:eth1
+    - r2:e1-2
+    - r3:e1-1
   - endpoints:
-    - r3:eth2
-    - r1:eth2
+    - r3:e1-2
+    - r1:e1-2

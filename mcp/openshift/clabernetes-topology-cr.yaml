@@ -1,0 +1,71 @@
+# Clabernetes Topology custom resource for the MCP-Telecom basic 3-node Nokia SRL ring.
+#
+# Deploy prerequisites (one-time, namespace c9s):
+#   helm upgrade --install --create-namespace --namespace c9s clabernetes \
+#     oci://ghcr.io/srl-labs/clabernetes/clabernetes
+#   oc adm policy add-scc-to-user anyuid -n c9s -z clabernetes-service-account
+#   oc adm policy add-scc-to-user anyuid -n c9s -z clabernetes-manager
+#   oc adm policy add-scc-to-user privileged -n c9s -z clabernetes-launcher-service-account
+#
+# Notes on the SCC grants above (discovered during live deployment, 2026-10-05):
+#   - clabernetes-manager / clabernetes-service-account (the controller pods) only need
+#     `anyuid` -- they fail under the default `restricted-v2` SCC because their webhook
+#     cert files are owned by a fixed UID the random restricted-v2 UID can't read.
+#   - clabernetes-launcher-service-account (the per-node pods that run containerlab/docker
+#     nested inside the pod) need the actual `privileged` SCC -- they run
+#     `securityContext.privileged: true` + `runAsUser: 0` for docker-in-docker, which no
+#     non-privileged SCC permits.
+#
+# Deploy this topology:
+#   oc apply -f mcp/openshift/clabernetes-topology-cr.yaml
+#
+# Verify:
+#   oc get topology -n c9s
+#   oc get pods -n c9s -l clabernetes/topologyOwner=mcp-telecom-basic
+#   oc exec deploy/mcp-telecom -n otel25-mcp -- python3 -c \
+#     "import socket; s=socket.create_connection(('mcp-telecom-basic-r1.c9s.svc.cluster.local', 22), timeout=10); print(s.recv(100))"
+#
+# clabverter was unavailable in the deployment environment used to verify this (no local
+# containerlab/clabverter binary, podman machine not running); this CR was constructed
+# directly since the Topology CRD's spec.definition.containerlab field just accepts the
+# raw containerlab topology YAML as a string -- clabverter is a convenience wrapper around
+# exactly this, not a hard requirement.
+
+apiVersion: clabernetes.containerlab.dev/v1alpha1
+kind: Topology
+metadata:
+  name: mcp-telecom-basic
+  namespace: c9s
+spec:
+  definition:
+    containerlab: "# Containerlab topology for MCP-Telecom basic 3-node Nokia SRL\
+      \ ring\n# Generated from ContainerlabManager.generate_test_scenario(\"basic\"\
+      ), then hand-corrected\n# after live deployment testing against Clabernetes\
+      \ 0.6.0 / containerlab 0.74.3 (2026-10-05):\n#\n#   1. Removed `startup-config:\
+      \ configs/r*.cfg` -- these files were never generated\n#      anywhere in the\
+      \ repo; containerlab failed trying to load a nonexistent file.\n#      Nokia\
+      \ SR Linux boots fine with factory-default config without one.\n#   2. Renamed\
+      \ link endpoints from generic `eth1`/`eth2` to Nokia SR Linux's native\n#  \
+      \    `e1-1`/`e1-2` format. containerlab 0.74.3 does NOT auto-translate generic\n\
+      #      ethN names for the nokia_srlinux kind -- it requires the native\n#  \
+      \    ethernet-L/P (or eL-P) pattern directly and errors otherwise. This is a\n\
+      #      pre-existing limitation of containerlab.py's generic `_next_eth()` helper\n\
+      #      (mcp/mcp-telecom/src/mcp_telecom/containerlab.py:60-63), which emits\
+      \ plain\n#      `ethN` for every vendor kind -- not something introduced by\
+      \ this change.\n#      Future scenarios using nokia_srlinux should account for\
+      \ this until/unless\n#      `_next_eth()` is made kind-aware.\n#\n# Deploy:\n\
+      #   sudo containerlab deploy -t containerlab-topology.yaml\n#\n# Clabernetes\
+      \ on OpenShift (verified working 2026-10-05, namespace c9s):\n#   oc apply -f\
+      \ <Topology CR wrapping this file's content under spec.definition.containerlab>\n\
+      #   (clabverter was unavailable in the deployment environment; the Topology\
+      \ CR's\n#   spec.definition.containerlab field accepts this raw containerlab\
+      \ YAML directly,\n#   so clabverter is not strictly required -- see clabernetes.containerlab.dev/v1alpha1\
+      \ CRD)\n#\n# Nodes: r1, r2, r3 (Nokia SR Linux) in a ring topology\n# Management\
+      \ subnet: 172.20.20.0/24\n#   r1 -> 172.20.20.2\n#   r2 -> 172.20.20.3\n#  \
+      \ r3 -> 172.20.20.4\n\nname: mcp-telecom-basic\nmgmt:\n  network: clab\n  ipv4-subnet:\
+      \ 172.20.20.0/24\ntopology:\n  nodes:\n    r1:\n      kind: nokia_srlinux\n\
+      \      image: ghcr.io/nokia/srlinux:latest\n    r2:\n      kind: nokia_srlinux\n\
+      \      image: ghcr.io/nokia/srlinux:latest\n    r3:\n      kind: nokia_srlinux\n\
+      \      image: ghcr.io/nokia/srlinux:latest\n  links:\n  - endpoints:\n    -\
+      \ r1:e1-1\n    - r2:e1-1\n  - endpoints:\n    - r2:e1-2\n    - r3:e1-1\n  -\
+      \ endpoints:\n    - r3:e1-2\n    - r1:e1-2\n"
