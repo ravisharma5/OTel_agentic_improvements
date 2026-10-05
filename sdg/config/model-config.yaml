@@ -1,0 +1,70 @@
+# vLLM Gemma 4 31B Serving Configuration
+# ========================================
+#
+# TEACHER MODEL REFERENCE
+# -----------------------
+# Documents the vLLM serving parameters for the Gemma 4 31B-IT teacher model
+# used by sdg_hub's LLMChatBlock during MCP Server Distillation.
+#
+# This file is a reference for operators deploying vLLM on the separate
+# OpenShift AI cluster (D-06). The actual serving is done by serve-gemma4.sh.
+#
+# References:
+#   D-08: Gemma 4 31B dense teacher model (Apache 2.0)
+#   D-09: vLLM --enable-auto-tool-choice --tool-call-parser gemma4
+#   D-10: GPU access already available on RHOAI cluster
+
+# ─── Model Identity ─────────────────────────────────────────────────────────
+
+model: google/gemma-4-31B-it
+api_base: http://vllm-gemma4.rhoai-sdg.svc:8000/v1  # In-cluster default (RHOAI)
+
+# LiteLLM provider prefix for sdg_hub's LLMChatBlock.
+# sdg_hub uses LiteLLM to route API calls; this prefix tells LiteLLM
+# to treat the endpoint as an OpenAI-compatible vLLM server.
+litellm_provider: hosted_vllm/google/gemma-4-31B-it
+
+# ─── Serving Parameters ─────────────────────────────────────────────────────
+
+dtype: bfloat16
+max_model_len: 8192
+gpu_memory_utilization: 0.90
+
+# Gemma 4 uses a custom non-JSON serialization for tool calls
+# (<|tool_call>call:func{key:<|"|>val<|"|>}<tool_call|>).
+# The gemma4 parser is REQUIRED -- generic parsers (hermes, etc.) will fail.
+tool_call_parser: gemma4
+reasoning_parser: gemma4
+
+# Pitfall 3 mitigation: limit concurrent sequences to avoid pad-token bug
+# in vLLM's batched generation (GitHub vllm-project/vllm#39392).
+max_num_seqs: 64
+
+# ─── Hardware Recommendations ───────────────────────────────────────────────
+
+# BF16 (full precision):
+#   - 1x H100 80GB SXM: fits comfortably (~62GB model + KV cache)
+#   - 1x A100 80GB SXM: tight fit, reduce gpu_memory_utilization to 0.85
+#
+# FP8 (quantized -- use serve-gemma4.sh --fp8):
+#   - 1x A100 80GB: fits easily (~31GB model + KV cache)
+#   - 1x A100 40GB: fits with max_model_len=4096
+#
+# Multi-GPU (use serve-gemma4.sh --tp 2):
+#   - 2x A100 40GB with --tensor-parallel-size 2: BF16, ~31GB per GPU
+#   - 2x L40S 48GB with --tensor-parallel-size 2: BF16, ~31GB per GPU
+#
+# Note: Gemma 4 31B dense has ~31B parameters. BF16 = ~62GB, FP8 = ~31GB.
+
+# ─── OpenAI API Compatibility ───────────────────────────────────────────────
+
+# vLLM exposes:
+#   POST /v1/chat/completions  (used by sdg_hub's LLMChatBlock via LiteLLM)
+#   POST /v1/completions       (raw completion, not used by sdg_hub)
+#   GET  /v1/models            (model listing for health checks)
+#
+# Tool calling:
+#   Request: tools=[...] in chat/completions body
+#   Response: assistant message with tool_calls array
+#   vLLM's gemma4 parser handles Gemma 4's custom serialization format
+#   transparently -- callers see standard OpenAI tool_calls JSON.
