@@ -51,11 +51,11 @@ declare -A EXPECTED_TOOL_COUNTS=(
 # CAMARA requires device + location parameters.
 
 declare -A KNOWN_GOOD_TOOL_NAME=(
-  [tmf642]="tmf642_list_alarms"
-  [tmf628]="tmf628_list_performance"
-  [tmf621]="tmf621_list_troubletickets"
-  [nwdaf]="nwdaf_get_nwdaf_analytics"
-  [camara]="camara_verify_location"
+  [tmf642]="listAlarm"
+  [tmf628]="listMeasurementCollectionJob"
+  [tmf621]="listTroubleTicket"
+  [nwdaf]="get_nwdaf_analytics"
+  [camara]="verify_location"
 )
 
 declare -A KNOWN_GOOD_TOOL_ARGS=(
@@ -217,7 +217,7 @@ else
       DISCOVERED=$(echo "$TOOL_NAMES" | grep -i "list" | grep -i "alarm" | head -1 || echo "")
       ;;
     tmf628)
-      DISCOVERED=$(echo "$TOOL_NAMES" | grep -i "list" | grep -i "perform" | head -1 || echo "")
+      DISCOVERED=$(echo "$TOOL_NAMES" | grep -i "list" | grep -iE "perform|measurement" | head -1 || echo "")
       ;;
     tmf621)
       DISCOVERED=$(echo "$TOOL_NAMES" | grep -i "list" | grep -i "trouble" | head -1 || echo "")

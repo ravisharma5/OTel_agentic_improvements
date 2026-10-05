@@ -10,10 +10,10 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 WORKDIR /app
 
 # Layer caching: copy dependency manifests first, install, then copy source
-COPY pyproject.toml ./
+COPY pyproject.toml uv.lock ./
 
-# Install production dependencies (no lockfile yet, uv will resolve)
-RUN uv sync --no-dev
+# Install production dependencies (frozen lockfile for reproducible builds)
+RUN uv sync --no-dev --frozen
 
 # Copy server source, spec, and allowlist
 COPY server.py ./

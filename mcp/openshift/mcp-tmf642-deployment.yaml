@@ -1,0 +1,71 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcp-tmf642
+  namespace: otel25-mcp
+  labels:
+    app: mcp-tmf642
+    layer: mcp
+    domain: tmf
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mcp-tmf642
+  template:
+    metadata:
+      labels:
+        app: mcp-tmf642
+        layer: mcp
+        domain: tmf
+    spec:
+      containers:
+      - name: mcp-tmf642
+        image: image-registry.openshift-image-registry.svc:5000/otel25-mcp/mcp-tmf642:latest
+        ports:
+        - containerPort: 8000
+          protocol: TCP
+        resources:
+          requests:
+            cpu: 250m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        livenessProbe:
+          tcpSocket:
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        volumeMounts:
+        - name: backend-routing
+          mountPath: /config/backend-routing
+          readOnly: true
+      volumes:
+      - name: backend-routing
+        configMap:
+          name: backend-routing
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mcp-tmf642
+  namespace: otel25-mcp
+  labels:
+    app: mcp-tmf642
+    layer: mcp
+    domain: tmf
+spec:
+  selector:
+    app: mcp-tmf642
+  ports:
+  - port: 8000
+    targetPort: 8000
+    protocol: TCP
+  type: ClusterIP
