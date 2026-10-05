@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+from pathlib import Path
 
 from dotenv import load_dotenv
 from fastmcp import FastMCP
@@ -26,6 +27,9 @@ logging.basicConfig(
     format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
 )
 logger = logging.getLogger("mcp_telecom")
+
+# CR-03: Containment directory for backup file reads
+BACKUPS_DIR = Path("backups").resolve()
 
 # ── Initialize core components ──────────────────────────────────────────────
 
@@ -471,18 +475,23 @@ def compare_configs(device: str, backup_file: str) -> str:
     """
     try:
         import difflib
-        from pathlib import Path
+
+        # CR-03: Contain backup_file reads to the BACKUPS_DIR.
+        # Resolve the RAW joined path (NOT .name-stripped) so traversal
+        # components like "../" resolve to their actual filesystem target.
+        candidate = (BACKUPS_DIR / backup_file).resolve()
+        if not candidate.is_relative_to(BACKUPS_DIR.resolve()):
+            return "Error: backup_file must be within the backups/ directory"
+
+        if not candidate.exists():
+            return f"Error: Backup file not found: {backup_file}"
+
+        previous = candidate.read_text()
 
         config = device_manager.get_device(device)
         cmd = get_command(config.device_type, "config_running")
         with device_manager.connect(device) as conn:
             current = conn.send_command(cmd, read_timeout=60)
-
-        backup_path = Path(backup_file)
-        if not backup_path.exists():
-            return f"Error: Backup file not found: {backup_file}"
-
-        previous = backup_path.read_text()
 
         diff = difflib.unified_diff(
             previous.splitlines(keepends=True),
