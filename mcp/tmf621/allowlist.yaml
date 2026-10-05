@@ -1,0 +1,12 @@
+server_name: "mcp-tmf621"
+spec_path: "specs/tmf621_troubleticket_v5.0.1.oas.yaml"
+backend_env_var: "TMF621_BASE_URL"
+operations:
+  - path: "/troubleTicket"
+    methods: ["POST"]
+  - path: "/troubleTicket/{id}"
+    methods: ["PATCH"]
+  - path: "/troubleTicket/{id}"
+    methods: ["GET"]
+  - path: "/troubleTicket"
+    methods: ["GET"]

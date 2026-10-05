@@ -83,9 +83,9 @@ def _start_config_watcher():
 SPEC_PATH = Path("specs/tmf642_alarm_v5.0.1.oas.yaml")
 
 route_maps = [
-    RouteMap(pattern=r"/alarm", methods=['GET'], mcp_type=MCPType.TOOL),
-    RouteMap(pattern=r"/alarm/\{id\}", methods=['GET'], mcp_type=MCPType.TOOL),
-    RouteMap(pattern=r"/hub", methods=['POST'], mcp_type=MCPType.TOOL),
+    RouteMap(pattern=r"^/alarm$", methods=['GET'], mcp_type=MCPType.TOOL),
+    RouteMap(pattern=r"^/alarm/\{id\}$", methods=['GET'], mcp_type=MCPType.TOOL),
+    RouteMap(pattern=r"^/hub$", methods=['POST'], mcp_type=MCPType.TOOL),
     # Exclude everything else (catch-all)
     RouteMap(mcp_type=MCPType.EXCLUDE),
 ]
