@@ -1,0 +1,174 @@
+# Curriculum Seed Taxonomy for SDG-02 Ordering
+# ===============================================
+#
+# FIVE-TIER CURRICULUM
+# --------------------
+# Defines the seed scenario taxonomy for SDG-02's curriculum ordering,
+# progressing from simple single-tool calls to complex closed-loop
+# observe-decide-act cycles. Each tier has scenario templates with
+# tool subsets, complexity ratings, and description templates.
+#
+# sdg_hub's RowMultiplierBlock and SamplerBlock use these tiers to
+# control the diversity and difficulty of generated training examples.
+#
+# materialize_seeds.py reads this file and cross-references the tool
+# subsets with the MCP Gateway's tools/list response to produce the
+# structured seed dataset sdg_hub's training flow expects.
+#
+# References:
+#   SDG-02: Curriculum ordering (single-tool to closed-loop)
+#   04-RESEARCH.md: sdg_hub pipeline mechanics, seed DataFrame structure
+
+tiers:
+
+  # ─── Tier 1: Single Tool ────────────────────────────────────────────────
+  # Individual tool calls exercising each domain independently.
+  # Complexity: 1 (simplest -- one tool, one action)
+
+  single_tool:
+    complexity: 1
+    description: Single-tool calls exercising individual domain APIs
+    scenarios:
+      - tool_subset: [tmf642_list_alarms]
+        description: "Check for {severity} alarms on the network"
+        parameters:
+          severity: [critical, major, minor, warning]
+
+      - tool_subset: [tmf628_list_performance_jobs]
+        description: "List performance monitoring jobs"
+        parameters: {}
+
+      - tool_subset: [tmf621_create_trouble_ticket]
+        description: "Create a trouble ticket for {category} issue"
+        parameters:
+          category: [network, hardware, software, security]
+
+      - tool_subset: [get_nwdaf_analytics]
+        description: "Get network analytics for {analytics_type}"
+        parameters:
+          analytics_type: [NF_LOAD, UE_MOBILITY, QOS_SUSTAINABILITY]
+
+      - tool_subset: [camara_verify_location]
+        description: "Verify device location for {device_id}"
+        parameters:
+          device_id: [ue-001, ue-002, ue-003]
+
+      - tool_subset: [show_interfaces]
+        description: "Show network interfaces on {device}"
+        parameters:
+          device: [router-lab-01, switch-core-01]
+
+      - tool_subset: [show_bgp_summary]
+        description: "Display BGP neighbor summary on {device}"
+        parameters:
+          device: [router-lab-01, router-edge-01]
+
+  # ─── Tier 2: Parallel ──────────────────────────────────────────────────
+  # Independent tool calls to different domains that can run simultaneously.
+  # Complexity: 2 (multiple tools, no dependencies between them)
+
+  parallel:
+    complexity: 2
+    description: Independent tool calls to different domains executed simultaneously
+    scenarios:
+      - tool_subset: [tmf642_list_alarms, tmf621_list_trouble_tickets]
+        description: "Check alarms and open tickets simultaneously"
+        parameters: {}
+
+      - tool_subset: [get_nwdaf_analytics, show_interfaces]
+        description: "Gather network analytics and interface status in parallel"
+        parameters: {}
+
+      - tool_subset: [tmf628_list_performance_jobs, tmf642_list_alarms]
+        description: "Review performance jobs and current alarms together"
+        parameters: {}
+
+      - tool_subset: [camara_verify_location, get_nwdaf_analytics]
+        description: "Verify device location while checking network load"
+        parameters: {}
+
+  # ─── Tier 3: Sequential ────────────────────────────────────────────────
+  # Dependent tool chains where each call depends on the previous result.
+  # Complexity: 3 (tool dependencies, result threading)
+
+  sequential:
+    complexity: 3
+    description: Dependent tool chains where each call uses results from the previous
+    scenarios:
+      - tool_subset: [tmf642_list_alarms, tmf642_get_alarm, tmf621_create_trouble_ticket]
+        description: "List alarms, get details for the critical one, create a trouble ticket"
+        parameters: {}
+
+      - tool_subset: [tmf628_list_performance_jobs, tmf628_get_tracking_record]
+        description: "List performance monitoring jobs, then get detailed tracking record for the failing one"
+        parameters: {}
+
+      - tool_subset: [show_interfaces, show_interface_detail]
+        description: "List all interfaces, then get detailed stats for the one with errors"
+        parameters: {}
+
+      - tool_subset: [tmf642_list_alarms, get_nwdaf_analytics]
+        description: "List alarms, then check network analytics to correlate with alarm source"
+        parameters: {}
+
+  # ─── Tier 4: Multi-Turn ────────────────────────────────────────────────
+  # User follow-up questions building on previous tool call results.
+  # Complexity: 4 (conversation context, follow-up reasoning)
+
+  multi_turn:
+    complexity: 4
+    description: User follow-up questions building on previous tool call results
+    scenarios:
+      - tool_subset: [tmf642_list_alarms, tmf642_get_alarm, tmf621_create_trouble_ticket]
+        description: "List alarms, get details, create ticket, then follow up on ticket status"
+        follow_up_prompts:
+          - "What is the status of the ticket I just created?"
+          - "Can you add more details about the alarm to the ticket?"
+
+      - tool_subset: [tmf628_list_performance_jobs, tmf628_get_tracking_record]
+        description: "List jobs, get tracking record, then ask about trends"
+        follow_up_prompts:
+          - "How does this compare to yesterday's performance?"
+          - "Which interfaces are affected by this degradation?"
+
+      - tool_subset: [get_nwdaf_analytics, show_interfaces, show_interface_detail]
+        description: "Check analytics, review interfaces, then drill into specific interface"
+        follow_up_prompts:
+          - "Show me more details on the interface with the highest error rate"
+          - "Is there an alarm associated with this interface?"
+
+  # ─── Tier 5: Closed Loop ──────────────────────────────────────────────
+  # Observe-decide-act cycles that combine multiple domains for end-to-end
+  # fault prediction and remediation workflows.
+  # Complexity: 5 (most complex -- observation, correlation, action)
+
+  closed_loop:
+    complexity: 5
+    description: Observe-decide-act cycles combining multiple domains for fault prediction
+    scenarios:
+      - tool_subset:
+          - tmf642_list_alarms
+          - get_nwdaf_analytics
+          - show_interface_detail
+          - tmf642_acknowledge_alarm
+          - tmf621_create_trouble_ticket
+        description: "Detect alarm, correlate with network analytics, verify interface status, acknowledge alarm, create ticket"
+        parameters: {}
+
+      - tool_subset:
+          - tmf628_list_performance_jobs
+          - tmf628_get_tracking_record
+          - tmf642_list_alarms
+          - get_nwdaf_analytics
+          - tmf621_create_trouble_ticket
+        description: "Detect performance degradation, get tracking details, check for related alarms, verify with analytics, open incident ticket"
+        parameters: {}
+
+      - tool_subset:
+          - show_interfaces
+          - show_interface_detail
+          - tmf642_list_alarms
+          - camara_verify_location
+          - tmf621_create_trouble_ticket
+        description: "Monitor interface errors, investigate affected interface, check for alarms, verify device location, escalate as trouble ticket"
+        parameters: {}

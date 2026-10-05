@@ -1,0 +1,68 @@
+# sdg_hub MCP Server Distillation Training Flow Overrides
+# ========================================================
+#
+# FLOW CONFIGURATION
+# ------------------
+# Overrides the default flow.yaml from sdg_hub's mcp_distillation_training
+# example flow. Configures the Gemma 4 31B teacher model (via vLLM) and
+# the Langflow agent (wrapping MCP Gateway tools) for the OTel 2.5 SDG
+# pipeline.
+#
+# ENV-VAR INTERPOLATION CONVENTION
+# ---------------------------------
+# Values like ${VLLM_API_KEY} are NOT expanded by yaml.safe_load().
+# The pipeline scripts (run-generation.py, run-evaluation.py) and notebooks
+# use sdg/scripts/load_config.py to load these files with
+# os.path.expandvars() on string values before passing to sdg_hub.
+# Alternatively, set the env vars and the scripts handle interpolation
+# at load time.
+#
+# Without this step, yaml.safe_load() returns the literal string
+# "${VLLM_API_KEY}" which will fail at runtime.
+#
+# References:
+#   D-01: sdg_hub (Red Hat AI Innovation Team) as SDG framework
+#   D-02: mcp_distillation_training flow for generation
+#   D-08: Gemma 4 31B dense as teacher model
+#   D-09: vLLM --tool-call-parser gemma4
+
+# ─── Teacher Model ──────────────────────────────────────────────────────────
+# LiteLLM provider prefix tells sdg_hub's LLMChatBlock to route API calls
+# to the vLLM OpenAI-compatible endpoint.
+
+model_config:
+  model: hosted_vllm/google/gemma-4-31B-it
+  api_key: "${VLLM_API_KEY}"
+  api_base: "${VLLM_API_BASE:-http://vllm-gemma4.rhoai-sdg.svc:8000/v1}"
+
+# ─── Agent Framework ────────────────────────────────────────────────────────
+# sdg_hub's AgentBlock requires an agent framework (Langflow or LangGraph)
+# as an intermediary to the MCP Gateway. The agent handles tool selection,
+# parameter filling, and trace capture.
+
+agent_config:
+  agent_framework: langflow
+  agent_url: "${LANGFLOW_URL:-http://langflow.rhoai-sdg.svc:7860/api/v1/run/default}"
+  agent_api_key: "${LANGFLOW_API_KEY}"
+
+# ─── Runtime Parameters ─────────────────────────────────────────────────────
+# These override the flow's default block parameters for volume and diversity.
+#
+# multiply_tool_rows.num_samples: How many copies of each tool row to create
+#   before sampling (controls diversity via different random subsets).
+# sample_tools.num_samples: How many tools to include in each generated
+#   question (3-tool subsets create more complex scenarios).
+
+runtime_params:
+  multiply_tool_rows:
+    num_samples: 20
+  sample_tools:
+    num_samples: 3
+
+# ─── Quality Thresholds ─────────────────────────────────────────────────────
+# These control the ColumnValueFilterBlock gates in the training flow.
+# Rows with quality below these thresholds are filtered out.
+
+quality_thresholds:
+  question_quality_min: good
+  response_quality_min: mostly complete
