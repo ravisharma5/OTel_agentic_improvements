@@ -1,0 +1,11 @@
+# NWDAF AnalyticsInfo allowlist (documentation only -- explicit @mcp.tool() used instead of CLI)
+# Per D-10a: multi-spec domains use hand-written tools to avoid MCPServerRegistration double-prefixing.
+server_name: mcp-nwdaf
+spec_path: specs/nwdaf_analyticsinfo_bundled.yaml
+backend_env_var: NWDAF_BASE_URL
+operations:
+  - operation_id: GetNWDAFAnalytics
+    path: /analytics
+    method: GET
+    tool_name: get_nwdaf_analytics
+    description: Query NWDAF analytics data for a specific event type
