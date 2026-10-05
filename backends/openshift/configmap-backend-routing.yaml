@@ -1,5 +1,16 @@
 # Backend Routing ConfigMap (D-14: per-API routing, D-15: plain ConfigMap)
 #
+# === SINGLE SOURCE OF TRUTH (D-17) ===
+#
+# This file in the otel25-backends namespace is the CANONICAL ConfigMap.
+# A copy exists in otel25-mcp (Kubernetes ConfigMaps are namespace-scoped).
+# After any edit to this file, run:
+#
+#   scripts/sync-backend-routing.sh
+#
+# to propagate changes to the otel25-mcp namespace copy. Failure to sync
+# causes silent backend routing drift between the two namespaces.
+#
 # === CONSUMER CONTRACT (BACK-03: no-redeploy switching) ===
 #
 # This ConfigMap is intended to be consumed by Phase 2/3 MCP servers via
@@ -27,6 +38,8 @@
 #   oc patch configmap backend-routing -n otel25-backends \
 #     --type merge -p '{"data":{"NWDAF_BASE_URL":"http://nextgcore-nwdaf.otel25-backends.svc.cluster.local:7777"}}'
 #
+# Then run: scripts/sync-backend-routing.sh
+#
 # No pod restart is needed for volume-mounted consumers. The kubelet
 # propagates the change within ~60 seconds (configurable via kubelet
 # syncFrequency).
@@ -43,7 +56,7 @@ metadata:
   namespace: otel25-backends
   labels:
     purpose: backend-routing
-    phase: "1"
+    phase: "4"
 data:
   # TMF API endpoints (Prism mock backends from Plan 03)
   TMF642_BASE_URL: "http://prism-tmf642.otel25-backends.svc.cluster.local:4010"
@@ -58,3 +71,16 @@ data:
   # Port 7777 = NextGCore SBI port (HTTP/2 h2c)
   # Full analytics path: /nnwdaf-analyticsinfo/v1/analytics?event-id=NF_LOAD
   NWDAF_BASE_URL: "http://nextgcore-nwdaf.otel25-backends.svc.cluster.local:7777"
+
+  # NWDAF Events Subscription endpoint (NextGCore live, Path A)
+  # Same host as NWDAF_BASE_URL -- path divergence is handled in code.
+  # NextGCore EventsSubscription uses /nnwdaf-eventssubscription/v1 base path
+  # (different from AnalyticsInfo's /nnwdaf-analyticsinfo/v1).
+  # For Prism, both specs serve at root, so this can match NWDAF_BASE_URL.
+  NWDAF_EVENTS_BASE_URL: "http://nextgcore-nwdaf.otel25-backends.svc.cluster.local:7777"
+
+  # NWDAF HTTP transport protocol selection (D-15)
+  # "h2c" = HTTP/2 cleartext prior-knowledge (for NextGCore SBI port)
+  # "http1.1" = standard HTTP/1.1 (for Prism or other HTTP/1.1 backends)
+  # When switching NWDAF to Prism, change this to "http1.1".
+  NWDAF_PROTOCOL: "h2c"
