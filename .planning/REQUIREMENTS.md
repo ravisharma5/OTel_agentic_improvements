@@ -7,14 +7,14 @@
 
 ### MCP Tools
 
-- [ ] **MCP-01**: Build 6 curated TMF642 alarm management MCP tools (list, get, acknowledge, clear, comment, subscribe)
-- [ ] **MCP-02**: Build 5 curated TMF628 performance management MCP tools (list jobs, create on-demand collection, get status, list/get tracking records)
-- [ ] **MCP-03**: Build 4 curated TMF621 trouble ticket MCP tools (create, update, get, list)
-- [ ] **MCP-04**: Build 3 curated NWDAF TS 29.520 analytics MCP tools (get analytics, subscribe events, unsubscribe)
-- [ ] **MCP-05**: Build 2 curated CAMARA Device Location MCP tools (verify location, retrieve location)
+- [x] **MCP-01**: Build 6 curated TMF642 alarm management MCP tools (list, get, acknowledge, clear, comment, subscribe)
+- [x] **MCP-02**: Build 5 curated TMF628 performance management MCP tools (list jobs, create on-demand collection, get status, list/get tracking records)
+- [x] **MCP-03**: Build 4 curated TMF621 trouble ticket MCP tools (create, update, get, list)
+- [x] **MCP-04**: Build 3 curated NWDAF TS 29.520 analytics MCP tools (get analytics, subscribe events, unsubscribe)
+- [x] **MCP-05**: Build 2 curated CAMARA Device Location MCP tools (verify location, retrieve location)
 - [x] **MCP-06**: Deploy MCP-Telecom (60+ device-layer tools) on OpenShift for infrastructure fault data
 - [x] **MCP-07**: Build reusable OpenAPI-to-MCP conversion tooling for future API waves
-- [ ] **MCP-08**: Compose all MCP servers behind Kuadrant MCP Gateway on OpenShift with tool namespacing
+- [x] **MCP-08**: Compose all MCP servers behind Kuadrant MCP Gateway on OpenShift with tool namespacing
 
 ### Backends
 
@@ -74,14 +74,14 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| MCP-01 | Phase 3 | Pending |
-| MCP-02 | Phase 3 | Pending |
-| MCP-03 | Phase 3 | Pending |
-| MCP-04 | Phase 3 | Pending |
-| MCP-05 | Phase 3 | Pending |
+| MCP-01 | Phase 3 | Complete |
+| MCP-02 | Phase 3 | Complete |
+| MCP-03 | Phase 3 | Complete |
+| MCP-04 | Phase 3 | Complete |
+| MCP-05 | Phase 3 | Complete |
 | MCP-06 | Phase 2 | Complete |
 | MCP-07 | Phase 2 | Complete |
-| MCP-08 | Phase 3 | Pending |
+| MCP-08 | Phase 3 | Complete |
 | BACK-01 | Phase 1 | Complete |
 | BACK-02 | Phase 1 | Complete |
 | BACK-03 | Phase 1 | Complete |

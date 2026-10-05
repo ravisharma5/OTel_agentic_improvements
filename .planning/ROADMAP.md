@@ -147,6 +147,6 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4. Phase 5 runs in parallel.
 |-------|----------------|--------|-----------|
 | 1. Backend Infrastructure | 4/4 | Complete    | 2026-10-02 |
 | 2. MCP Tooling Foundation | 3/3 | Complete    | 2026-10-04 |
-| 3. MCP Domain Servers and Gateway | 6/6 | Complete   | 2026-10-05 |
+| 3. MCP Domain Servers and Gateway | 6/6 | Complete    | 2026-10-05 |
 | 4. SDG Pipeline and Dataset Production | 0/3 | Not started | - |
 | 5. Industry Gaps Document | 0/1 | Not started | - |
