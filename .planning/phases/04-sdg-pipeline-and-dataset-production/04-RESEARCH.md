@@ -538,27 +538,31 @@ vllm serve google/gemma-4-31B-it \
 | A5 | Gemma 4 31B dense is sufficient as both teacher model and semantic judge (D-11) | Claude's Discretion | LOW -- if quality is insufficient, the judge can be a separate model instance or a different model entirely. |
 | A6 | sdg_hub 0.9.4 flow YAML structure matches the documented 18-block pipeline | Standard Stack | LOW -- the flow was fetched from the GitHub repo and matched the version on PyPI at the time of the GitHub fetch; minor version differences possible if the PyPI latest (0.9.4) differs from main branch. |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Does Training Hub's OSFT tokenizer handle `tool_calls` and `tool` role correctly?**
    - What we know: OSFT accepts `messages` JSONL with system/user/assistant roles. HuggingFace TRL 0.19.0+ supports tool-calling in SFT. PITFALLS.md Pitfall #5 describes the expected format.
    - What is unclear: Whether Training Hub's mini_trainer backend passes these fields through to the tokenizer and correctly masks non-assistant tokens including tool responses.
    - Recommendation: D-19 dry-run in the first week. If it fails, determine whether the issue is in mini_trainer (needs a patch) or in the chat template (needs tool-calling support configured).
+   - **RESOLVED:** D-19 dry-run gate implemented in 04-07 Task 3 (checkpoint:human-verify). Farbod's team validates 10-example dry-run before production run proceeds.
 
 2. **Can the Langflow/LangGraph agent on OpenShift AI reach the RHCL MCP Gateway on the existing cluster?**
    - What we know: The gateway Route is at `mcp.apps.cluster-wfhjs.wfhjs.sandbox1330.opentlc.com` with TLS edge termination. Keycloak client-credentials flow is built.
    - What is unclear: Whether the OpenShift AI cluster can reach this hostname (DNS resolution, firewall rules between clusters).
    - Recommendation: Simple curl test from the OpenShift AI cluster in the first task. If blocked, need to configure network policy or use a different exposure mechanism.
+   - **RESOLVED:** Gateway reachability test implemented as Test 1 in 04-05 Task 2 (verify-langflow-mcp.sh). Script acquires JWT and curls the gateway endpoint from the RHOAI cluster.
 
 3. **Does Langflow/LangGraph have native MCP protocol support, or do we need to build a bridge?**
    - What we know: sdg_hub's `AgentBlock` supports `langflow` and `langgraph` agent frameworks. The MCP Gateway serves MCP protocol (Streamable HTTP + SSE).
    - What is unclear: Whether Langflow/LangGraph can consume MCP protocol endpoints directly as tool providers, or if we need to build an adapter that converts MCP tool schemas to Langflow/LangGraph's tool format.
    - Recommendation: Research Langflow's MCP support during the first implementation task. If not supported, build a lightweight adapter that calls the gateway's `tools/list` and `tools/call` endpoints.
+   - **RESOLVED:** Implemented as 04-05 Task 2 (verify-langflow-mcp.sh). Script tests native MCP support (MCP_NATIVE=true/false) and provides contingency adapter instructions if absent.
 
 4. **What is the exact Containerlab topology shape needed?**
    - What we know: `containerlab.py` supports Nokia SRL, Cisco XRd, Cisco IOSxe, Cisco NX-OS, Juniper cRPD, Arista cEOS. MCP-Telecom has 58 device-layer tools covering routing, interfaces, MPLS, VPN, QoS, SNMP, config management.
    - What is unclear: How many devices, which vendors, and what topology (basic ring, MPLS core, datacenter spine-leaf, ISP edge) gives the best coverage for SDG.
    - Recommendation: Start with the `basic` scenario (3x Nokia SRL ring) for initial testing. Expand to `mpls_core` (Nokia + Cisco multi-vendor) for the production run to cover more vendor-specific tool variations.
+   - **RESOLVED:** 04-06 Task 1 uses the "basic" Nokia SRL ring topology (3 devices) as the initial deployment shape, per Claude's discretion on exact topology shape noted in CONTEXT.md.
 
 ## Environment Availability
 

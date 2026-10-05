@@ -39,23 +39,26 @@ updated: 2026-10-05
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 04-01-T1 | 04-01 | 1 | D-13 (CR-01) | T-04-01 | `command_allowlist.yaml` enforced in `validate_command()` | unit | `cd mcp/mcp-telecom && uv run pytest tests/test_allowlist.py -x` | Yes (rewrite) | ⬜ pending |
-| 04-01-T2 | 04-01 | 1 | D-13 (CR-02) | T-04-02 | `show_interface_detail`'s interface argument sanitized | unit | `cd mcp/mcp-telecom && uv run pytest tests/test_interfaces.py -x` | ❌ W0 | ⬜ pending |
-| 04-01-T2 | 04-01 | 1 | D-13 (CR-03) | T-04-03 | `compare_configs`' backup_file contained to `backups/` | unit | `cd mcp/mcp-telecom && uv run pytest tests/test_compare_configs.py -x` | ❌ W0 | ⬜ pending |
-| 04-02-T1 | 04-02 | 1 | D-15 | -- | NWDAF client speaks h2c to NextGCore | integration | Manual: curl test from pod | ❌ manual | ⬜ pending |
-| 04-02-T2 | 04-02 | 1 | D-17 | -- | ConfigMap sync between namespaces | automated | `bash -n scripts/sync-backend-routing.sh` | ❌ W0 | ⬜ pending |
-| 04-04-T1 | 04-04 | 1 | SDG-03 | -- | Both single-turn and multi-turn JSONL formats valid | unit | `cd sdg/scripts && python -m pytest test_serialize_osft.py -x` | ❌ W0 | ⬜ pending |
-| 04-04-T2 | 04-04 | 1 | SDG-05, D-04 | -- | OSFT validation library (imported by eval flow block) | unit | `cd sdg/lib && python -m pytest test_osft_validation.py -x` | ❌ W0 | ⬜ pending |
-| 04-05-T2 | 04-05 | 1 | SDG-01 | -- | Langflow MCP Gateway integration verified (Open Q3) | automated | `bash -n sdg/scripts/verify-langflow-mcp.sh` | ❌ W0 | ⬜ pending |
-| 04-05-T3 | 04-05 | 1 | SDG-01, SDG-02 | -- | Flow configs valid YAML with osft_schema_filter block (D-04) | automated | `python3 -c "import yaml; yaml.safe_load(open('sdg/config/flow-evaluation.yaml'))"` | ❌ W0 | ⬜ pending |
-| 04-06-T1 | 04-06 | 2 | D-12, D-14 | -- | Containerlab topology and device inventory populated | automated | `python3 -c "import yaml; yaml.safe_load(open('mcp/mcp-telecom/devices.yaml'))"` | ❌ W0 | ⬜ pending |
-| 04-06-T2 | 04-06 | 2 | D-12 | -- | Containerlab devices SSH-reachable | manual | Manual: SSH from MCP-Telecom pod | ❌ manual | ⬜ pending |
-| 04-07-T1 | 04-07 | 3 | SDG-01 | -- | Production scripts exist and load sdg_hub | automated | `test -f sdg/scripts/run-generation.py && test -f sdg/scripts/run-evaluation.py` | ❌ W0 | ⬜ pending |
-| 04-07-T2 | 04-07 | 3 | SDG-01, D-05 | -- | Notebooks valid JSON | automated | `python3 -c "import json; json.load(open('sdg/notebooks/01-dry-run.ipynb'))"` | ❌ W0 | ⬜ pending |
-| 04-07-T3 | 04-07 | 3 | SDG-01, D-19 | -- | Dry-run with Farbod's team (10 examples, OSFT validated) | manual | Manual: run 01-dry-run.ipynb on RHOAI | ❌ manual | ⬜ pending |
-| 04-07-T4 | 04-07 | 3 | SDG-04, SDG-05 | -- | Production run: 5K-10K filtered examples delivered | manual | Manual: run 03-production-run.ipynb | ❌ manual | ⬜ pending |
+| 04-01-T1 | 04-01 | 1 | D-13 (CR-01) | T-04-01 | `command_allowlist.yaml` enforced in `validate_command()` | unit | `cd mcp/mcp-telecom && uv run pytest tests/test_allowlist.py -x` | Yes (rewrite) | pending |
+| 04-01-T2 | 04-01 | 1 | D-13 (CR-02) | T-04-02 | `show_interface_detail`'s interface argument sanitized | unit | `cd mcp/mcp-telecom && uv run pytest tests/test_interfaces.py -x` | W0 | pending |
+| 04-01-T2 | 04-01 | 1 | D-13 (CR-03) | T-04-03 | `compare_configs`' backup_file contained to `backups/` | unit | `cd mcp/mcp-telecom && uv run pytest tests/test_compare_configs.py -x` | W0 | pending |
+| 04-02-T1 | 04-02 | 1 | D-15 | -- | NWDAF client speaks h2c to NextGCore | integration | Manual: curl test from pod | manual | pending |
+| 04-02-T2 | 04-02 | 1 | D-17 | -- | ConfigMap sync between namespaces | automated | `bash -n scripts/sync-backend-routing.sh` | W0 | pending |
+| 04-03-T1 | 04-03 | 1 | D-16 | -- | TMF628 spec enriched with realistic example values | automated | `python3 -m json.tool backends/specs/tmf628_performance_v4.0.0.swagger.json > /dev/null && python3 -c "import json; d=json.load(open('backends/specs/tmf628_performance_v4.0.0.swagger.json')); count=str(d).count('example'); print(f'example count: {count}')"` | Yes (enrich) | pending |
+| 04-03-T2 | 04-03 | 1 | D-16 | -- | TMF642, TMF621, CAMARA specs enriched with realistic example values | automated | `for f in backends/specs/tmf642_alarm_v5.0.1.oas.yaml backends/specs/tmf621_troubleticket_v5.0.1.oas.yaml backends/specs/camara_location_verification.yaml backends/specs/camara_location_retrieval.yaml; do python3 -c "import yaml; yaml.safe_load(open('$f'))" && echo "$f: valid YAML"; done` | Yes (enrich) | pending |
+| 04-04-T1 | 04-04 | 1 | SDG-03 | -- | Both single-turn and multi-turn JSONL formats valid | unit | `cd sdg/scripts && python -m pytest test_serialize_osft.py -x` | W0 | pending |
+| 04-04-T2 | 04-04 | 1 | SDG-05, D-04 | -- | OSFT validation library (imported by run-evaluation.py per amended D-04) | unit | `cd sdg/lib && python -m pytest test_osft_validation.py -x` | W0 | pending |
+| 04-05-T1 | 04-05 | 1 | SDG-01 | -- | vLLM and Langflow scripts syntactically valid, correct flags present | automated | `bash -n sdg/scripts/serve-gemma4.sh && bash -n sdg/scripts/start-agent.sh && grep -q "tool-call-parser gemma4" sdg/scripts/serve-gemma4.sh && grep -q "client_credentials" sdg/scripts/start-agent.sh` | W0 | pending |
+| 04-05-T2 | 04-05 | 1 | SDG-01 | -- | Langflow MCP Gateway integration verified (Open Q3) | automated | `bash -n sdg/scripts/verify-langflow-mcp.sh && grep -q "MCP_NATIVE" sdg/scripts/verify-langflow-mcp.sh` | W0 | pending |
+| 04-05-T3 | 04-05 | 1 | SDG-01, SDG-02 | -- | Flow configs valid YAML, no speculative osft_schema_filter block (per amended D-04) | automated | `python3 -c "import yaml; yaml.safe_load(open('sdg/config/flow-evaluation.yaml'))"` | W0 | pending |
+| 04-06-T1 | 04-06 | 2 | D-12, D-14 | -- | Containerlab topology and device inventory populated | automated | `python3 -c "import yaml; yaml.safe_load(open('mcp/mcp-telecom/devices.yaml'))"` | W0 | pending |
+| 04-06-T2 | 04-06 | 2 | D-12 | -- | Containerlab devices SSH-reachable | manual | Manual: SSH from MCP-Telecom pod | manual | pending |
+| 04-07-T1 | 04-07 | 3 | SDG-01, D-04 | -- | Production scripts exist, run-evaluation.py calls validate_osft_line and has COLUMN_MAP | automated | `test -f sdg/scripts/run-generation.py && test -f sdg/scripts/run-evaluation.py && grep -q "validate_osft_line" sdg/scripts/run-evaluation.py && grep -q "COLUMN_MAP" sdg/scripts/run-evaluation.py` | W0 | pending |
+| 04-07-T2 | 04-07 | 3 | SDG-01, D-05 | -- | Notebooks valid JSON | automated | `python3 -c "import json; json.load(open('sdg/notebooks/01-dry-run.ipynb'))"` | W0 | pending |
+| 04-07-T3 | 04-07 | 3 | SDG-01, D-19 | -- | Dry-run with Farbod's team (10 examples, OSFT validated) | manual | Manual: run 01-dry-run.ipynb on RHOAI | manual | pending |
+| 04-07-T4 | 04-07 | 3 | SDG-04, SDG-05 | -- | Production run: 5K-10K filtered examples delivered | manual | Manual: run 03-production-run.ipynb | manual | pending |
 
-*Status: ⬜ pending / ✅ green / ❌ red / ⚠️ flaky*
+*Status: pending / green / red / flaky*
 
 ---
 
@@ -65,7 +68,7 @@ updated: 2026-10-05
 - [x] `mcp/mcp-telecom/tests/test_interfaces.py` -- new test for `show_interface_detail` argument sanitization (CR-02) -- **covered by 04-01 Task 2**
 - [x] `mcp/mcp-telecom/tests/test_compare_configs.py` -- new test for `backup_file` path containment (CR-03) -- **covered by 04-01 Task 2**
 - [x] `sdg/scripts/test_serialize_osft.py` -- validates OSFT JSONL serializer output, both trajectory formats (SDG-03, SDG-05) -- **covered by 04-04 Task 1**
-- [x] `sdg/lib/test_osft_validation.py` -- validates OSFT schema compliance library imported by eval flow block (D-04, D-05) -- **covered by 04-04 Task 2**
+- [x] `sdg/lib/test_osft_validation.py` -- validates OSFT schema compliance library imported by run-evaluation.py (D-04, D-05) -- **covered by 04-04 Task 2**
 
 ---
 
@@ -93,4 +96,4 @@ updated: 2026-10-05
 - [x] Feedback latency < 60s (automated tests); manual steps tracked separately
 - [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** approved (revision pass -- all plan/task IDs populated, Wave 0 items covered)
+**Approval:** approved (revision 3 -- added 04-03-T1, 04-03-T2, 04-05-T1 rows; updated D-04 references to reflect amended wiring; updated 04-07-T1 to verify validate_osft_line and COLUMN_MAP)
