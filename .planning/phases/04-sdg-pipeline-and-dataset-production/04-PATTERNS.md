@@ -11,12 +11,13 @@
 |-------------------|------|-----------|----------------|---------------|
 | `sdg/scripts/run-generation.py` | utility | batch/transform | `scripts/check-config.py` | role-match |
 | `sdg/scripts/run-evaluation.py` | utility | batch/transform | `scripts/check-config.py` | role-match |
-| `sdg/scripts/serialize-osft.py` | utility | transform | `mcp/tooling/openapi_to_mcp.py` | partial |
+| `sdg/scripts/serialize_osft.py` | utility | transform | `mcp/tooling/openapi_to_mcp.py` | partial |
 | `sdg/lib/osft_validation.py` | library | transform | `mcp/tooling/allowlist_schema.py` | partial |
 | `sdg/lib/test_osft_validation.py` | test | transform | `mcp/mcp-telecom/tests/test_safety.py` | role-match |
 | `sdg/scripts/serve-gemma4.sh` | config/script | request-response | `scripts/verify-gateway.sh` | role-match |
 | `sdg/scripts/start-agent.sh` | config/script | request-response | `scripts/verify-gateway.sh` | role-match |
 | `sdg/scripts/verify-langflow-mcp.sh` | config/script | request-response | `scripts/verify-gateway.sh` | exact |
+| `sdg/scripts/materialize_seeds.py` | utility | batch/transform | `scripts/check-config.py` | role-match |
 | `sdg/config/flow-training.yaml` | config | -- | `mcp/mcp-telecom/command_allowlist.yaml` | role-match |
 | `sdg/config/flow-evaluation.yaml` | config | -- | `mcp/mcp-telecom/command_allowlist.yaml` | role-match |
 | `sdg/config/seed-scenarios.yaml` | config | -- | `mcp/mcp-telecom/devices.yaml.example` | role-match |
@@ -300,7 +301,7 @@ flow.set_model_config(
 
 ---
 
-### `sdg/scripts/serialize-osft.py` (utility, transform)
+### `sdg/scripts/serialize_osft.py` (utility, transform)
 
 **Analog:** `mcp/tooling/openapi_to_mcp.py` (closest Python transform script)
 
@@ -652,7 +653,7 @@ class Test<Feature>:
 
 ### Python Script Convention
 **Source:** `scripts/check-config.py` (lines 1-3) + `mcp/tooling/openapi_to_mcp.py` (lines 1-28)
-**Apply to:** `sdg/scripts/run-generation.py`, `sdg/scripts/run-evaluation.py`, `sdg/scripts/serialize-osft.py`
+**Apply to:** `sdg/scripts/run-generation.py`, `sdg/scripts/run-evaluation.py`, `sdg/scripts/serialize_osft.py`
 ```python
 #!/usr/bin/env python3
 """<One-line description of what the script does.>
