@@ -79,10 +79,6 @@ SCAFFOLD_TEMPLATE = Template(textwrap.dedent('''\
                 with _backend_url_lock:
                     _backend_url = url
                 client.base_url = url
-                # TODO(Phase 3): Validate that FastMCP from_openapi() re-reads client.base_url
-                # per-request. If it freezes the URL at tool-construction time, the alternative
-                # is to recreate the FastMCP app instance on backend-URL change.
-                # See .planning/STATE.md and 02-RESEARCH.md Open Question 1.
         except FileNotFoundError:
             pass  # use default on first boot
 

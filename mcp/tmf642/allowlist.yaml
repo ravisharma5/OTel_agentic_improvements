@@ -1,0 +1,10 @@
+server_name: "mcp-tmf642"
+spec_path: "specs/tmf642_alarm_v5.0.1.oas.yaml"
+backend_env_var: "TMF642_BASE_URL"
+operations:
+  - path: "/alarm"
+    methods: ["GET"]
+  - path: "/alarm/{id}"
+    methods: ["GET"]
+  - path: "/hub"
+    methods: ["POST"]
