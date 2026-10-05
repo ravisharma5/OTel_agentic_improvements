@@ -146,8 +146,12 @@ def _start_retrieve_watcher():
 
 
 # --- HTTP clients (separate clients for verify and retrieve backends) ---
-verify_client = httpx2.AsyncClient(base_url=get_verify_url())
-retrieve_client = httpx2.AsyncClient(base_url=get_retrieve_url())
+# CAMARA APIs require OAuth2 security. Prism validates security scheme presence
+# but does not validate the token value. A dummy Bearer token satisfies Prism's
+# security validation. In production, this would be replaced with a real OAuth2 token.
+_CAMARA_AUTH_HEADERS = {"Authorization": "Bearer prism-mock-token"}
+verify_client = httpx2.AsyncClient(base_url=get_verify_url(), headers=_CAMARA_AUTH_HEADERS)
+retrieve_client = httpx2.AsyncClient(base_url=get_retrieve_url(), headers=_CAMARA_AUTH_HEADERS)
 
 
 # --- FastMCP Server ---
@@ -232,11 +236,8 @@ def create_app():
     _start_verify_watcher()
     _start_retrieve_watcher()
 
-    app = mcp.get_app(
-        transport="streamable-http",
-        stateless_http=True,
-    )
-    app.routes.append(Route("/healthz", healthz))
+    app = mcp.http_app()
+    app.router.routes.append(Route("/healthz", healthz))
     return app
 
 

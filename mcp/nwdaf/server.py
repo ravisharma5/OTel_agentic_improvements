@@ -202,11 +202,8 @@ def create_app():
     _load_backend_url()
     _start_config_watcher()
 
-    app = mcp.get_app(
-        transport="streamable-http",
-        stateless_http=True,
-    )
-    app.routes.append(Route("/healthz", healthz))
+    app = mcp.http_app()
+    app.router.routes.append(Route("/healthz", healthz))
     return app
 
 
