@@ -1,0 +1,27 @@
+# RHCL MCP Gateway Operator
+# NOTE: An OperatorGroup already exists in otel25-gateway (keycloak-og).
+# Kubernetes namespaces can only have one OperatorGroup; both the Keycloak
+# and MCP Gateway operators share it. If deploying to a fresh namespace,
+# uncomment the OperatorGroup below.
+#
+# ---
+# apiVersion: operators.coreos.com/v1
+# kind: OperatorGroup
+# metadata:
+#   name: mcp-gateway-og
+#   namespace: otel25-gateway
+# spec:
+#   targetNamespaces:
+#   - otel25-gateway
+# ---
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: mcp-gateway
+  namespace: otel25-gateway
+spec:
+  channel: preview
+  installPlanApproval: Automatic
+  name: mcp-gateway
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace

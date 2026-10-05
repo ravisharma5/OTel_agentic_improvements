@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: otel25-gateway
+  labels:
+    purpose: phase-3-gateway
+    layer: gateway

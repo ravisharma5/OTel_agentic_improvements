@@ -1,0 +1,98 @@
+# Ephemeral PostgreSQL for Keycloak (WG training pipeline, not production)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: keycloak-db-secret
+  namespace: otel25-gateway
+type: Opaque
+stringData:
+  username: keycloak
+  password: ***REDACTED-DB-PASSWORD***
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keycloak-postgres
+  namespace: otel25-gateway
+  labels:
+    app: keycloak-postgres
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: keycloak-postgres
+  template:
+    metadata:
+      labels:
+        app: keycloak-postgres
+    spec:
+      containers:
+      - name: postgres
+        image: registry.redhat.io/rhel9/postgresql-16:latest
+        ports:
+        - containerPort: 5432
+        env:
+        - name: POSTGRESQL_USER
+          valueFrom:
+            secretKeyRef:
+              name: keycloak-db-secret
+              key: username
+        - name: POSTGRESQL_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: keycloak-db-secret
+              key: password
+        - name: POSTGRESQL_DATABASE
+          value: keycloak
+        resources:
+          requests:
+            cpu: 250m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        # No PVC -- ephemeral storage (data lost on pod restart)
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: keycloak-postgres
+  namespace: otel25-gateway
+  labels:
+    app: keycloak-postgres
+spec:
+  selector:
+    app: keycloak-postgres
+  ports:
+  - port: 5432
+    targetPort: 5432
+  type: ClusterIP
+---
+# Keycloak instance for MCP Gateway JWT authentication
+apiVersion: k8s.keycloak.org/v2alpha1
+kind: Keycloak
+metadata:
+  name: mcp-keycloak
+  namespace: otel25-gateway
+  labels:
+    app: keycloak
+    purpose: mcp-auth
+spec:
+  instances: 1
+  db:
+    vendor: postgres
+    host: keycloak-postgres
+    port: 5432
+    database: keycloak
+    usernameSecret:
+      name: keycloak-db-secret
+      key: username
+    passwordSecret:
+      name: keycloak-db-secret
+      key: password
+  hostname:
+    hostname: mcp-keycloak-otel25-gateway.apps.cluster-wfhjs.wfhjs.sandbox1330.opentlc.com
+  http:
+    httpEnabled: true
+  proxy:
+    headers: xforwarded
