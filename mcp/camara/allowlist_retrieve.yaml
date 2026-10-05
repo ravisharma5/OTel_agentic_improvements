@@ -1,0 +1,11 @@
+# CAMARA Device Location Retrieval allowlist (documentation only -- explicit @mcp.tool() used)
+# Per D-10a: multi-spec domains use hand-written tools to avoid MCPServerRegistration double-prefixing.
+server_name: mcp-camara
+spec_path: specs/camara_location_retrieval.yaml
+backend_env_var: CAMARA_RETRIEVAL_BASE_URL
+operations:
+  - operation_id: retrieveLocation
+    path: /retrieve
+    method: POST
+    tool_name: retrieve_location
+    description: Retrieve the current location of a device

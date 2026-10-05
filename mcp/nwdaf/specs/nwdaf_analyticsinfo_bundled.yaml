@@ -1,0 +1,423 @@
+openapi: 3.0.0
+info:
+  version: 1.1.5
+  title: Nnwdaf_AnalyticsInfo (Bundled)
+  description: |
+    Nnwdaf_AnalyticsInfo Service API - Self-contained bundle for Prism mock server.
+    All external $ref links from TS29520, TS29571, TS29510, TS29503, TS29554
+    have been inlined to avoid cross-file resolution errors in Prism.
+
+    Original spec: 3GPP TS 29.520 V16.12.0; 5G System; Network Data Analytics Services.
+    (c) 2022, 3GPP Organizational Partners (ARIB, ATIS, CCSA, ETSI, TSDSI, TTA, TTC).
+    All rights reserved.
+servers:
+  - url: '{apiRoot}/nnwdaf-analyticsinfo/v1'
+    variables:
+      apiRoot:
+        default: https://example.com
+        description: apiRoot as defined in subclause 4.4 of 3GPP TS 29.501.
+paths:
+  /analytics:
+    get:
+      summary: Read a NWDAF Analytics
+      operationId: GetNWDAFAnalytics
+      tags:
+        - NWDAF Analytics (Document)
+      parameters:
+        - name: event-id
+          in: query
+          description: Identify the analytics.
+          required: true
+          schema:
+            $ref: '#/components/schemas/EventId'
+        - name: supported-features
+          in: query
+          description: To filter irrelevant responses related to unsupported features
+          schema:
+            type: string
+            pattern: '^[A-Fa-f0-9]*$'
+      responses:
+        '200':
+          description: Containing the analytics data.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalyticsData'
+        '204':
+          description: No Content (The requested NWDAF Analytics data does not exist)
+        '400':
+          description: Bad request
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '404':
+          description: Not Found
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '500':
+          description: Internal Server Error
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        default:
+          description: Generic Error
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+components:
+  schemas:
+    AnalyticsData:
+      type: object
+      properties:
+        expiry:
+          type: string
+          format: date-time
+          description: Expiry time of the analytics data.
+          example: "2026-10-02T16:00:00Z"
+        timeStampGen:
+          type: string
+          format: date-time
+          description: Timestamp of analytics data generation.
+          example: "2026-10-02T15:00:00Z"
+        start:
+          type: string
+          format: date-time
+          description: Start time of the analytics period.
+          example: "2026-10-02T15:00:00Z"
+        sliceLoadLevelInfos:
+          type: array
+          items:
+            $ref: '#/components/schemas/SliceLoadLevelInformation'
+          minItems: 1
+          description: The slices and their load level information.
+        nsiLoadLevelInfos:
+          type: array
+          items:
+            $ref: '#/components/schemas/NsiLoadLevelInfo'
+          minItems: 1
+        nfLoadLevelInfos:
+          type: array
+          items:
+            $ref: '#/components/schemas/NfLoadLevelInformation'
+          minItems: 1
+          description: NF load level information per registered network function.
+        nwPerfs:
+          type: array
+          items:
+            $ref: '#/components/schemas/NetworkPerfInfo'
+          minItems: 1
+        svcExps:
+          type: array
+          items:
+            $ref: '#/components/schemas/ServiceExperienceInfo'
+          minItems: 1
+        abnorBehavrs:
+          type: array
+          items:
+            $ref: '#/components/schemas/AbnormalBehaviour'
+          minItems: 1
+
+    NfLoadLevelInformation:
+      type: object
+      description: Represents NF load level information per TS 29.520.
+      required:
+        - nfType
+      properties:
+        nfType:
+          $ref: '#/components/schemas/NFType'
+        nfInstanceId:
+          type: string
+          format: uuid
+          description: NF instance identifier.
+          example: "2b26face-408d-44e2-b07c-7abb2d4c4ba9"
+        nfStatus:
+          type: object
+          properties:
+            statusRegistered:
+              type: integer
+              minimum: 0
+              maximum: 100
+              description: Percentage of registered status.
+              example: 100
+            statusUndiscoverable:
+              type: integer
+              minimum: 0
+              maximum: 100
+            statusUnregistered:
+              type: integer
+              minimum: 0
+              maximum: 100
+        nfCpuUsage:
+          type: integer
+          minimum: 0
+          description: NF CPU usage percentage.
+          example: 5
+        nfMemoryUsage:
+          type: integer
+          minimum: 0
+          description: NF memory usage percentage.
+        nfStorageUsage:
+          type: integer
+          minimum: 0
+          description: NF storage usage percentage.
+        nfLoadLevelAverage:
+          type: integer
+          minimum: 0
+          description: Average NF load level.
+          example: 10
+        nfLoadLevelpeak:
+          type: integer
+          minimum: 0
+          description: Peak NF load level.
+          example: 15
+        nfLoadAvgInAoi:
+          type: integer
+          minimum: 0
+          description: Average load in area of interest.
+        confidence:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: Confidence level of the analytics data.
+          example: 95
+
+    SliceLoadLevelInformation:
+      type: object
+      required:
+        - loadLevelInformation
+      properties:
+        loadLevelInformation:
+          type: integer
+          description: Load level information of the network slice.
+        snssais:
+          type: array
+          items:
+            $ref: '#/components/schemas/Snssai'
+          minItems: 1
+        confidence:
+          type: integer
+          minimum: 0
+          maximum: 100
+
+    NsiLoadLevelInfo:
+      type: object
+      properties:
+        loadLevelInformation:
+          type: integer
+          description: Load level information of the network slice instance.
+        nsiId:
+          type: string
+          description: Network Slice Instance identifier.
+        snssai:
+          $ref: '#/components/schemas/Snssai'
+        confidence:
+          type: integer
+          minimum: 0
+          maximum: 100
+
+    NetworkPerfInfo:
+      type: object
+      properties:
+        networkArea:
+          type: object
+          properties:
+            id:
+              type: string
+        nwPerfType:
+          type: string
+          enum:
+            - GNB_UL_USAGE
+            - GNB_DL_USAGE
+            - GNB_ACTIVE_UE
+            - GNB_ACTIVATING_UE
+            - GNB_CAMP_UE
+            - GNB_SUSPENDED_UE
+            - GNB_E2E_DL_DELAY
+            - GNB_E2E_UL_DELAY
+        relativeRatio:
+          type: integer
+          minimum: 0
+          maximum: 100
+        absoluteNum:
+          type: integer
+          minimum: 0
+        confidence:
+          type: integer
+          minimum: 0
+          maximum: 100
+
+    ServiceExperienceInfo:
+      type: object
+      properties:
+        svcExprc:
+          type: object
+          properties:
+            mos:
+              type: number
+              format: float
+              minimum: 1.0
+              maximum: 5.0
+        snssai:
+          $ref: '#/components/schemas/Snssai'
+        appId:
+          type: string
+        confidence:
+          type: integer
+          minimum: 0
+          maximum: 100
+
+    AbnormalBehaviour:
+      type: object
+      properties:
+        supis:
+          type: array
+          items:
+            type: string
+          minItems: 1
+        excep:
+          type: object
+          properties:
+            excepId:
+              type: string
+              enum:
+                - UNEXPECTED_UE_LOCATION
+                - UNEXPECTED_LONG_LIVE_FLOW
+                - LARGE_PEAK_DURATION
+                - UNEXPECTED_LARGE_RATE_FLOW
+                - UNEXPECTED_WAKEUP
+                - SUSPICION_OF_DDOS_ATTACK
+                - WRONG_DESTINATION_ADDRESS
+                - TOO_FREQUENT_SERVICE_ACCESS
+                - ABNORMAL_TRAFFIC_VOLUME
+                - UNEXPECTED_RADIO_LINK_FAILURES
+                - PING_PONG_ACROSS_CELLS
+            excepLevel:
+              type: integer
+              minimum: 0
+        ratio:
+          type: integer
+          minimum: 0
+          maximum: 100
+        confidence:
+          type: integer
+          minimum: 0
+          maximum: 100
+
+    EventId:
+      type: string
+      enum:
+        - LOAD_LEVEL_INFORMATION
+        - NETWORK_PERFORMANCE
+        - NF_LOAD
+        - SERVICE_EXPERIENCE
+        - UE_MOBILITY
+        - UE_COMMUNICATION
+        - QOS_SUSTAINABILITY
+        - ABNORMAL_BEHAVIOUR
+        - USER_DATA_CONGESTION
+        - NSI_LOAD_LEVEL
+      description: |
+        Possible values are:
+        - LOAD_LEVEL_INFORMATION: Analytics of load level information of network slice.
+        - NETWORK_PERFORMANCE: Analytics of network performance information.
+        - NF_LOAD: NF Load analytics.
+        - SERVICE_EXPERIENCE: Analytics of service experience information.
+        - UE_MOBILITY: Analytics of UE mobility.
+        - UE_COMMUNICATION: Analytics of UE communication.
+        - QOS_SUSTAINABILITY: Analytics of QoS sustainability information.
+        - ABNORMAL_BEHAVIOUR: Abnormal behaviour information.
+        - USER_DATA_CONGESTION: Analytics of user data congestion.
+        - NSI_LOAD_LEVEL: Analytics of Network Slice Instance load level.
+
+    NFType:
+      type: string
+      enum:
+        - NRF
+        - UDM
+        - AMF
+        - SMF
+        - AUSF
+        - NEF
+        - PCF
+        - SMSF
+        - NSSF
+        - UDR
+        - LMF
+        - GMLC
+        - 5G_EIR
+        - SEPP
+        - UPF
+        - N3IWF
+        - AF
+        - UDSF
+        - BSF
+        - CHF
+        - NWDAF
+        - PCSCF
+        - CBCF
+        - HSS
+        - UCMF
+        - SOR_AF
+        - SPAF
+        - MME
+        - SCSAS
+        - SCEF
+        - SCP
+        - NSSAAF
+        - DCCF
+        - EES
+        - LMF
+        - MBSMF
+        - NSACF
+        - PIN
+      description: NF types as defined in 3GPP TS 29.510.
+
+    Snssai:
+      type: object
+      required:
+        - sst
+      properties:
+        sst:
+          type: integer
+          minimum: 0
+          maximum: 255
+          description: Slice/Service type.
+          example: 1
+        sd:
+          type: string
+          pattern: '^[A-Fa-f0-9]{6}$'
+          description: Slice Differentiator.
+
+    ProblemDetails:
+      type: object
+      properties:
+        type:
+          type: string
+          format: uri
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        instance:
+          type: string
+          format: uri
+        cause:
+          type: string
+        invalidParams:
+          type: array
+          items:
+            type: object
+            required:
+              - param
+            properties:
+              param:
+                type: string
+              reason:
+                type: string
