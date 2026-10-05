@@ -12,7 +12,7 @@ OTel 2.5 can correctly call telecom tools (TMF, CAMARA, NWDAF) to complete fault
 
 ## Current State
 
-Phase 1 (Backend Infrastructure) and Phase 2 (MCP Tooling Foundation) complete. Phase 1: all 5 Prism mock backends (TMF642, TMF628, TMF621, CAMARA verify + retrieve) and a real NextGCore NWDAF deployment (not a mock fallback) are running on OpenShift in namespace `otel25-backends`, with ConfigMap-based mock/live routing verified. Phase 2: MCP-Telecom (58 device-layer tools) vendored, patched to Streamable HTTP, and deployed on OpenShift in namespace `otel25-mcp` (verified live — pod Running, `tools/list` returns 58 tools, tool invocation works); reusable OpenAPI-to-MCP conversion CLI built and proven against the real CAMARA spec plus a synthetic fixture proving allowlist-based operation filtering. Three security gaps found in vendored MCP-Telecom code during code review (command allowlist not enforced, unsanitized SSH/file-read args) are dormant under Phase 2's scope (no device backend wired) and flagged forward for Phase 4. Ready for Phase 3 (MCP Domain Servers and Gateway).
+Phases 1-3 complete. Phase 1: all 5 Prism mock backends (TMF642, TMF628, TMF621, CAMARA verify + retrieve) and a real NextGCore NWDAF deployment (not a mock fallback) are running on OpenShift in namespace `otel25-backends`, with ConfigMap-based mock/live routing verified. Phase 2: MCP-Telecom (58 device-layer tools) vendored, patched to Streamable HTTP, and deployed on OpenShift in namespace `otel25-mcp`; reusable OpenAPI-to-MCP conversion CLI built and proven against the real CAMARA spec. Three security gaps found in vendored MCP-Telecom code during code review are dormant (no device backend wired) and flagged forward for Phase 4. Phase 3: all 20 fault-prediction MCP tools built (TMF642 x6, TMF628 x5, TMF621 x4, NWDAF x3, CAMARA x2) and deployed to `otel25-mcp`; Red Hat Connectivity Link's MCP Gateway (Technology Preview) provisioned from scratch on OpenShift — OSSM, cert-manager, Keycloak, and the RHCL operator — composing all 78 tools (20 new + 58 MCP-Telecom) behind one JWT-authenticated endpoint with 4 per-domain Virtual MCP Servers. Verified live end-to-end: unauthenticated requests rejected, tool calls through the gateway return real Prism backend data. A code-review pass during Phase 3 found two live credentials committed to git (Keycloak client secret, DB password); both were rotated on the cluster, the code fixed to read secrets from the k8s Secret at runtime, and the leaked values scrubbed from git history (never pushed to origin). Known accepted gaps carried into Phase 4: NWDAF has no Prism mock and its live-backend path hits an HTTP/2 h2c incompatibility; the backend-routing ConfigMap exists as two unsynced copies; RHCL's Virtual MCP Server config requires manual re-merging after any backend registration change. Ready for Phase 4 (SDG Pipeline and Dataset Production).
 
 ## Requirements
 
@@ -20,11 +20,11 @@ Phase 1 (Backend Infrastructure) and Phase 2 (MCP Tooling Foundation) complete. 
 
 - Integrate MCP-Telecom (60+ tools, MIT) for infrastructure/device layer fault data — Phase 2: vendored, patched to Streamable HTTP, deployed and verified live on OpenShift (MCP-06)
 - Build reusable OpenAPI-to-MCP conversion tooling for future API waves — Phase 2: CLI built, smoke-tested against the real CAMARA spec, and proven to enforce operation filtering via a synthetic 2-operation fixture (MCP-07)
+- Build 20 curated MCP tools for fault prediction across TMF642/628/621, NWDAF, and CAMARA — Phase 3: all 20 built and deployed, individually callable against Prism backends (MCP-01, MCP-02, MCP-03, MCP-04, MCP-05)
+- Compose all MCP servers behind a unified gateway with tool namespacing — Phase 3: RHCL MCP Gateway composes all 78 tools (20 new + 58 MCP-Telecom) behind one JWT-authenticated endpoint with 4 per-domain Virtual MCP Servers, verified end-to-end (MCP-08)
 
 ### Active
 
-- [ ] Build ~20 new MCP tools for fault prediction (TMF642 alarm mgmt, TMF628 performance, TMF621 trouble ticket, NWDAF TS 29.520 analytics, CAMARA Device Location)
-- [ ] Deploy MCP servers and sandbox backends on OpenShift
 - [ ] Build SDG pipeline: teacher model generates tool-calling examples from MCP tool schemas
 - [ ] Execute SDG with three-tier backend verification (NextGCore live, operator sandboxes, Prism mocks)
 - [ ] Produce 8,500-14,000 training examples, filter to 5,000-10,000 high quality
@@ -62,7 +62,8 @@ Phase 1 (Backend Infrastructure) and Phase 2 (MCP Tooling Foundation) complete. 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
 | Start with fault prediction use case | Narrowest API surface (TMF642 + TMF628 + NWDAF), proven SDG pipeline (NeMo), clear eval (ZTE-AIM/TFCE) | — Pending |
-| Two-track MCP approach: MCP-Telecom (device layer) + build new BSS/OSS tools | MCP-Telecom already covers infrastructure; BSS/OSS layer (TMF, NWDAF, CAMARA) has no existing MCP servers | Validated in Phase 2 — MCP-Telecom deployed and verified; BSS/OSS tools scoped to Phase 3 |
+| Two-track MCP approach: MCP-Telecom (device layer) + build new BSS/OSS tools | MCP-Telecom already covers infrastructure; BSS/OSS layer (TMF, NWDAF, CAMARA) has no existing MCP servers | Validated in Phase 2/3 — MCP-Telecom deployed and verified; 20 BSS/OSS tools built, deployed, and composed behind the gateway in Phase 3 |
+| Gateway is Red Hat Connectivity Link's MCP Gateway, not a hand-rolled FastMCP composition | Corrected mid-Phase-3 after discovering the original architecture research assumed a DIY FastMCP `mount()` gateway; the roadmap had actually locked in RHCL | Validated in Phase 3 — RHCL 1.4 (Technology Preview) provisioned from scratch, composes all 78 tools behind one JWT-authenticated endpoint |
 | Training data + pipeline as deliverable, not trained model | WG produces data, Farbod's team runs OSFT. Separation of concerns. | — Pending |
 | Conformance test suite over formal MCP certification | Test suite gets 80% of value at 10% of overhead. Certification can come later. | — Pending |
 | Separate industry gaps doc from training project | Gaps (MCP conformance, telco API simulators, agent deployment ref arch) are strategic, not tied to Oct 15 deadline | — Pending |
@@ -85,4 +86,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-10-04 after Phase 2 completion*
+*Last updated: 2026-10-05 after Phase 3 completion*
