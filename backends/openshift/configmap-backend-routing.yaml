@@ -76,8 +76,10 @@ data:
 
   # NWDAF Analytics endpoint (NextGCore live, Path A)
   # Port 7777 = NextGCore SBI port (HTTP/2 h2c)
-  # Full analytics path: /nnwdaf-analyticsinfo/v1/analytics?event-id=NF_LOAD
-  NWDAF_BASE_URL: "http://nextgcore-nwdaf.otel25-backends.svc.cluster.local:7777"
+  # Base path included directly -- NextGCore serves analytics at
+  # /nnwdaf-analyticsinfo/v1/analytics, not at root. Without this suffix the
+  # server gets a 404 even once the h2c transport itself is working correctly.
+  NWDAF_BASE_URL: "http://nextgcore-nwdaf.otel25-backends.svc.cluster.local:7777/nnwdaf-analyticsinfo/v1"
 
   # NWDAF Events Subscription endpoint (NextGCore live, Path A)
   # Same host as NWDAF_BASE_URL -- path divergence is handled in code.
@@ -86,8 +88,17 @@ data:
   # For Prism, both specs serve at root, so this can match NWDAF_BASE_URL.
   NWDAF_EVENTS_BASE_URL: "http://nextgcore-nwdaf.otel25-backends.svc.cluster.local:7777"
 
-  # NWDAF HTTP transport protocol selection (D-15)
+  # NWDAF HTTP transport protocol selection
   # "h2c" = HTTP/2 cleartext prior-knowledge (for NextGCore SBI port)
   # "http1.1" = standard HTTP/1.1 (for Prism or other HTTP/1.1 backends)
   # When switching NWDAF to Prism, change this to "http1.1".
   NWDAF_PROTOCOL: "h2c"
+
+  # UDR authentication-subscription endpoint (NextGCore live, Phase 6)
+  # Port 7777 = NextGCore SBI port (HTTP/2 h2c), same convention as NWDAF.
+  # Base path included directly -- NextGCore serves this API at
+  # /nudr-dr/v2, not at root.
+  UDR_BASE_URL: "http://udr.otel25-backends.svc.cluster.local:7777/nudr-dr/v2"
+
+  # UDR HTTP transport protocol selection (Phase 6, same convention as NWDAF_PROTOCOL)
+  UDR_PROTOCOL: "h2c"
