@@ -4,3 +4,18 @@ sdg/**/__pycache__/
 sdg/pipelines/sdg_production_pipeline.yaml
 .git/
 .planning/
+
+# sdg/openshift/Dockerfile only COPYs sdg/ -- everything below is dead weight
+# in the binary build upload (`oc start-build --from-dir=.` sends the whole
+# repo root as context regardless of what the Dockerfile actually COPYs).
+# mcp/ alone was 287M, almost entirely local .venv/ dirs never meant to ship.
+mcp/
+backends/
+gateway/
+deliverables/
+docs/
+gaps/
+scripts/
+.archify/
+**/.venv/
+**/__pycache__/
