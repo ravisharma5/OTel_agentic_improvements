@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 4 Plan 7 Task 3/4 in progress -- pipeline infra built, first full run (106 examples) produced closed_loop coverage failures; system-prompt fix attempted and reverted (2026-10-11)
-last_updated: "2026-10-11T23:59:00.000Z"
-last_activity: 2026-10-11 -- Phase 5 + Phase 6 completed and pushed; Phase 4 Task 3/4 work (pipeline infra + first full run) remains uncommitted
+stopped_at: GPU node unblocked (g5.12xlarge), teacher model Running, --no-cache KFP validation run in flight (02a13ce7) against the original 3 closed_loop scenarios only -- decision pending on whether to rebuild sdg-pipeline:latest for Phase 6 scope before or after this run completes
+last_updated: "2026-10-12T06:50:00.000Z"
+last_activity: 2026-10-12 -- Fixed sandbox2667 GPU capacity (g5.12xlarge), fixed KFP submit script (verify_ssl, --no-cache), found pipeline image predates Phase 6 scenarios
 progress:
   total_phases: 6
   completed_phases: 5

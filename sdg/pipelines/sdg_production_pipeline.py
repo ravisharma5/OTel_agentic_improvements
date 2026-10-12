@@ -298,6 +298,17 @@ def main() -> None:
     parser.add_argument(
         "--experiment", default="sdg-production", help="KFP experiment name to run under (--submit only)."
     )
+    parser.add_argument(
+        "--no-cache",
+        action="store_true",
+        help=(
+            "Force every generate_tier task to re-run even if a prior run with identical "
+            "tier/gateway_url/keycloak_url/client_id inputs is cached (--submit only). "
+            "Needed when the backends/MCP tools changed but the pipeline's own inputs did not "
+            "-- otherwise set_caching_options(True) on generate_tier (04-LEARNINGS.md, "
+            "2026-10-10) silently reuses stale per-tier outputs instead of re-generating."
+        ),
+    )
     args = parser.parse_args()
 
     compiler.Compiler().compile(sdg_production_pipeline, args.output)
@@ -308,11 +319,15 @@ def main() -> None:
             raise SystemExit("--submit requires both --host and --token")
         import kfp
 
-        client = kfp.Client(host=args.host, existing_token=args.token)
+        # verify_ssl=False: the in-cluster kube-rbac-proxy sidecar in front of the DSPA API
+        # server (sdg/openshift/sdg-dspa-submit-rbac.yaml) serves a self-signed cert -- not
+        # the cluster's service-ca -- so TLS verification fails even for an in-cluster caller.
+        client = kfp.Client(host=args.host, existing_token=args.token, verify_ssl=False)
         run = client.create_run_from_pipeline_package(
             args.output,
             arguments={},
             experiment_name=args.experiment,
+            enable_caching=False if args.no_cache else None,
         )
         print(f"Submitted run: {run.run_id}")
 

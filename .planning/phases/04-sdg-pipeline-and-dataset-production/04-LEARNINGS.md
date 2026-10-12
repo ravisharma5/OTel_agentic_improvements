@@ -568,3 +568,52 @@ reused until a fresh (non-cached) exploration pass runs against these two fixed 
 (vLLM) is not currently deployed on sandbox2667 (waiting on GPU node availability), so a fresh
 closed_loop generation run to confirm the fix closes the coverage gap hasn't been possible yet -- this is
 the first thing to try once the model is up.
+
+---
+
+## 2026-10-12 — GPU node unblocked, teacher model up, but two more gaps found before a real validation run was possible
+
+The sandbox2667 GPU node (`g6e.12xlarge`) had been failing for 47+ minutes on a genuine AWS
+`InsufficientInstanceCapacity` error for that instance type in `us-east-2b` -- confirmed via a live
+test-launch, not inferred from the pod event alone. `us-east-2a`/`us-east-2c` (which AWS suggested) aren't
+usable: this sandbox's VPC only has subnets in `us-east-2b`. Tested `g6.12xlarge` (also 4-GPU, L4 instead
+of L40S) in the same AZ -- also no capacity. `g5.12xlarge` (4x A10G, 96GB total) succeeded on the first
+real launch attempt. Scaled the failing `g6e.12xlarge` MachineSet to 0, kept the `g5.12xlarge` node, and
+the `redhataigemma-4-31b-it` KServe pod scheduled and became `2/2 Running` on it with no manifest changes
+needed (no node selector/affinity was ever set on the pod).
+
+With the model finally up, two more gaps surfaced before a real `closed_loop` validation run was
+possible, neither related to Gemma 4 or Gemini:
+
+1. **`generate_tier`'s caching silently defeated the whole point of the exercise.** The first KFP run
+   submitted after the model came up reported `Succeeded` in under 2 minutes and reused the exact
+   2026-10-10 cached output for all 5 tiers (`closed_loop_raw.jsonl`: 0 rows, same "tools never called"
+   list as before) -- `set_caching_options(True)` on `generate_tier` (2026-10-10 entry above) means a
+   resubmitted run with identical `tier`/`gateway_url`/`keycloak_url`/`client_id` inputs always hits cache,
+   regardless of whether the actual backends changed. The KFP pipeline image itself isn't even on the
+   dependency list KFP hashes for cache keys -- only the declared component inputs are -- so neither
+   today's TMF628/devices.yaml fixes nor any future server-side fix will ever bust this cache on their
+   own. Added a `--no-cache` flag to `sdg_production_pipeline.py`'s `--submit` path
+   (`enable_caching=False` on `create_run_from_pipeline_package`) as the deliberate override for exactly
+   this situation -- verified a second submission with `--no-cache` actually executes `explore_server`
+   live instead of skipping straight to `Succeeded`.
+
+2. **The deployed pipeline image predates the Phase 6 scenario additions.** Checked directly inside the
+   running pod's filesystem (not assumed from build timestamps): `/opt/app-root/src/sdg/config/
+   seed-scenarios.yaml` baked into `otel25-sdg/sdg-pipeline:latest` has zero occurrences of
+   `devicestatus*`/`udrget_authentication*` -- only the original 21 fault-prediction scenarios. The 9
+   new cross-domain scenarios Phase 6 added (including the 2 new closed_loop ones exercising UDR and
+   CAMARA Device Status) are invisible to every run against this image until it's rebuilt from current
+   `sdg/`. This means even a fully successful `--no-cache` run right now only validates the original 3
+   closed_loop scenarios' fix, not the Phase 6 cross-domain breadth the project is trying to scale into.
+
+Also fixed in passing: `sdg_production_pipeline.py --submit` was missing `verify_ssl=False` against the
+in-cluster kube-rbac-proxy endpoint (self-signed cert, not the cluster's service-ca) -- the RBAC
+manifest's own comments documented this as required but the script never implemented it, so every
+`--submit` attempt failed on `SSLCertVerificationError` until this was added.
+
+**Status:** a `--no-cache` run (`02a13ce7-edaa-44e9-bc27-b71ccfe20abb`) is in flight, confirmed executing
+`explore_server` live rather than skipping. This will validate the TMF628/devices.yaml fix for the
+original 3 closed_loop scenarios once it completes. Still open: rebuild `sdg-pipeline:latest` from
+current `sdg/` so a follow-up run can validate the Phase 6 cross-domain closed_loop scenarios too --
+decision on sequencing (let this run finish first vs. rebuild now) not yet made.
