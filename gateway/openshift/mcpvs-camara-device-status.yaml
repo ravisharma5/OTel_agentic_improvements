@@ -1,0 +1,14 @@
+# MCPVirtualServer: CAMARA Device Status tools
+# Filters gateway tools/list to exactly 3 Device Status tools
+# Tool names confirmed via live gateway discovery
+apiVersion: mcp.kuadrant.io/v1alpha1
+kind: MCPVirtualServer
+metadata:
+  name: camara-device-status-tools
+  namespace: otel25-gateway
+spec:
+  description: "CAMARA Device Status roaming, reachability, and connected-network-type tools"
+  tools:
+  - devicestatusget_roaming_status
+  - devicestatusget_reachability_status
+  - devicestatusget_connected_network_type

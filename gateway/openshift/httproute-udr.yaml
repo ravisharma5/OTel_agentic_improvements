@@ -1,0 +1,20 @@
+# HTTPRoute: route MCP traffic to UDR data-repository backend
+# Points to mcp-udr Service in otel25-mcp (cross-namespace via ReferenceGrant)
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: mcp-udr-route
+  namespace: otel25-gateway
+  labels:
+    mcp-server: "true"
+spec:
+  hostnames:
+  - udr.mcp.local
+  parentRefs:
+  - name: mcp-gateway
+    namespace: otel25-gateway
+  rules:
+  - backendRefs:
+    - name: mcp-udr
+      namespace: otel25-mcp
+      port: 8000

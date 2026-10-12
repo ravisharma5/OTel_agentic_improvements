@@ -1,0 +1,196 @@
+openapi: 3.0.0
+info:
+  version: 2.3.0-alpha.6
+  title: Nudr_DataRepository Authentication Subscription (Bundled)
+  description: |
+    Nudr_DataRepository Service API -- self-contained bundle covering only the
+    authentication-subscription GET operation. All external $ref links from
+    TS29505_Subscription_Data, TS29571_CommonData have been inlined to avoid
+    cross-file resolution errors in Prism, matching the scoping already used
+    for mcp/nwdaf/specs/nwdaf_analyticsinfo_bundled.yaml.
+
+    Original spec: 3GPP TS 29.504 V18.5.0; 5G System; Unified Data Repository
+    Services; Stage 3 (operation itself defined in TS 29.505, the UDR usage
+    spec for subscription data).
+    (c) 2024, 3GPP Organizational Partners (ARIB, ATIS, CCSA, ETSI, TSDSI, TTA, TTC).
+    All rights reserved.
+servers:
+  - url: '{apiRoot}/nudr-dr/v2'
+    variables:
+      apiRoot:
+        default: https://example.com
+        description: apiRoot as defined in subclause 4.4 of 3GPP TS 29.501.
+paths:
+  /subscription-data/{ueId}/authentication-data/authentication-subscription:
+    get:
+      summary: Retrieves the authentication subscription data of a UE
+      operationId: QueryAuthSubsData
+      tags:
+        - Authentication Data (Document)
+      parameters:
+        - name: ueId
+          in: path
+          description: UE id (SUPI)
+          required: true
+          schema:
+            $ref: '#/components/schemas/Supi'
+        - name: supported-features
+          in: query
+          description: Supported Features
+          schema:
+            type: string
+            pattern: '^[A-Fa-f0-9]*$'
+      responses:
+        '200':
+          description: Expected response to a valid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthenticationSubscription'
+        '400':
+          description: Bad request
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '404':
+          description: Not Found
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '500':
+          description: Internal Server Error
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        default:
+          description: Generic Error
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+components:
+  schemas:
+    Supi:
+      type: string
+      pattern: '^(imsi-[0-9]{5,15}|nai-.+|gci-.+|gli-.+|.+)$'
+      description: |
+        String identifying a Supi that shall contain either an IMSI, a network
+        specific identifier, a Global Cable Identifier (GCI) or a Global Line
+        Identifier (GLI), formatted "imsi-<imsi>" for an IMSI per 3GPP TS 23.003.
+      example: imsi-999700000000001
+
+    AuthenticationSubscription:
+      description: A UE's authentication data.
+      type: object
+      required:
+        - authenticationMethod
+      properties:
+        authenticationMethod:
+          $ref: '#/components/schemas/AuthMethod'
+        encPermanentKey:
+          type: string
+          description: Encrypted permanent key (K), hex-encoded.
+        protectionParameterId:
+          type: string
+        sequenceNumber:
+          $ref: '#/components/schemas/SequenceNumber'
+        authenticationManagementField:
+          type: string
+          pattern: '^[A-Fa-f0-9]{4}$'
+          description: AMF field, 2 octets hex-encoded.
+        algorithmId:
+          type: string
+        encOpcKey:
+          type: string
+          description: Encrypted OPc key, hex-encoded.
+        encTopcKey:
+          type: string
+        vectorGenerationInHss:
+          type: boolean
+          default: false
+        rgAuthenticationInd:
+          type: boolean
+          default: false
+        supi:
+          $ref: '#/components/schemas/Supi'
+        akmaAllowed:
+          type: boolean
+          default: false
+        routingId:
+          type: string
+          pattern: '^[0-9]{1,4}$'
+
+    SequenceNumber:
+      description: Contains the SQN.
+      type: object
+      properties:
+        sqnScheme:
+          $ref: '#/components/schemas/SqnScheme'
+        sqn:
+          type: string
+          pattern: '^[A-Fa-f0-9]{12}$'
+        lastIndexes:
+          type: object
+          additionalProperties:
+            type: integer
+            minimum: 0
+          description: A map (list of key-value pairs) where type of node serves as key.
+        indLength:
+          type: integer
+          minimum: 0
+        difSign:
+          type: string
+          enum:
+            - NONDIF
+            - POSITIVE
+            - NEGATIVE
+
+    SqnScheme:
+      description: Scheme for generation of Sequence Numbers.
+      type: string
+      enum:
+        - GENERAL
+        - NON_TIME_BASED
+        - TIME_BASED
+
+    AuthMethod:
+      description: Contains the Authentication Method.
+      type: string
+      enum:
+        - 5G_AKA
+        - EAP_AKA_PRIME
+        - EAP_TLS
+        - EAP_TTLS
+        - NONE
+
+    ProblemDetails:
+      type: object
+      properties:
+        type:
+          type: string
+          format: uri
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        instance:
+          type: string
+          format: uri
+        cause:
+          type: string
+        invalidParams:
+          type: array
+          items:
+            type: object
+            required:
+              - param
+            properties:
+              param:
+                type: string
+              reason:
+                type: string

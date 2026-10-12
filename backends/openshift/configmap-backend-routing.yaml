@@ -63,9 +63,16 @@ data:
   TMF628_BASE_URL: "http://prism-tmf628.otel25-backends.svc.cluster.local:4010"
   TMF621_BASE_URL: "http://prism-tmf621.otel25-backends.svc.cluster.local:4010"
 
-  # CAMARA API endpoints (Prism mock backends from Plan 03)
+  # CAMARA Device Location API endpoints (Prism mock backends from Plan 03)
   CAMARA_BASE_URL: "http://prism-camara.otel25-backends.svc.cluster.local:4010"
   CAMARA_RETRIEVAL_BASE_URL: "http://prism-camara-retrieval.otel25-backends.svc.cluster.local:4010"
+
+  # CAMARA Device Status API endpoints (Prism mock backends, Phase 6)
+  # No live backend exists for CAMARA Device Status in this project (unlike NWDAF's
+  # NextGCore reference core) -- same Prism-mock pattern as Device Location.
+  CAMARA_ROAMING_BASE_URL: "http://prism-camara-roaming.otel25-backends.svc.cluster.local:4010"
+  CAMARA_REACHABILITY_BASE_URL: "http://prism-camara-reachability.otel25-backends.svc.cluster.local:4010"
+  CAMARA_NETWORK_TYPE_BASE_URL: "http://prism-camara-network-type.otel25-backends.svc.cluster.local:4010"
 
   # NWDAF Analytics endpoint (NextGCore live, Path A)
   # Port 7777 = NextGCore SBI port (HTTP/2 h2c)

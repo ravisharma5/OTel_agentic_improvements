@@ -1,0 +1,15 @@
+# MCPServerRegistration: register UDR TS 29.504/29.505 data-repository MCP server
+# Prefix "udr" -- all discovered tools prefixed with udr_
+# targetRef points to the HTTPRoute that routes to mcp-udr backend
+apiVersion: mcp.kuadrant.io/v1alpha1
+kind: MCPServerRegistration
+metadata:
+  name: udr
+  namespace: otel25-gateway
+spec:
+  prefix: udr
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: mcp-udr-route
+  path: /mcp

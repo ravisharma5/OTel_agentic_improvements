@@ -1,0 +1,22 @@
+[project]
+name = "mcp-udr"
+version = "0.1.0"
+description = "UDR TS 29.504/29.505 MCP server -- authentication subscription data tool"
+requires-python = ">=3.12"
+dependencies = [
+    "fastmcp>=4.0.11",
+    "httpx2>=2.13.1",
+    "h2>=4.1.0",
+    "pyyaml>=6.0.3",
+    "uvicorn>=0.30.0",
+]
+
+[project.scripts]
+mcp-udr = "server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["."]

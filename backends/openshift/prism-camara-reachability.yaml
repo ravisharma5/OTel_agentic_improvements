@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prism-camara-reachability
+  namespace: otel25-backends
+  labels:
+    app: prism-camara-reachability
+    api: camara-reachability
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prism-camara-reachability
+  template:
+    metadata:
+      labels:
+        app: prism-camara-reachability
+        api: camara-reachability
+    spec:
+      containers:
+      - name: prism
+        image: image-registry.openshift-image-registry.svc:5000/otel25-backends/prism-camara-reachability:latest
+        ports:
+        - containerPort: 4010
+          protocol: TCP
+        env:
+        - name: NODE_ENV
+          value: "production"
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 250m
+            memory: 256Mi
+        readinessProbe:
+          tcpSocket:
+            port: 4010
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        livenessProbe:
+          tcpSocket:
+            port: 4010
+          initialDelaySeconds: 10
+          periodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prism-camara-reachability
+  namespace: otel25-backends
+  labels:
+    app: prism-camara-reachability
+    api: camara-reachability
+spec:
+  selector:
+    app: prism-camara-reachability
+  ports:
+  - port: 4010
+    targetPort: 4010
+    protocol: TCP
+  type: ClusterIP

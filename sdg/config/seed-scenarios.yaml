@@ -8,8 +8,21 @@
 # observe-decide-act cycles. Each tier has scenario templates with
 # tool subsets, complexity ratings, and description templates.
 #
-# sdg_hub's RowMultiplierBlock and SamplerBlock use these tiers to
-# control the diversity and difficulty of generated training examples.
+# Each scenario's `name` is a stable identifier used as sdg_hub's
+# mcp_server_name column (materialize_seeds.py) and for tool-coverage
+# tracking/reporting (tool_coverage_report.py) -- do not rename an
+# existing scenario without checking for downstream report references.
+#
+# NOTE ON USAGE: sdg_hub's real "MCP Server Distillation" flow does not
+# consume `description`/`parameters`/`follow_up_prompts` as literal question
+# text -- it generates its own questions from `tool_list` + `mcp_server_name`
+# + `mcp_server_description` (fed from this scenario's `name`/`description`
+# as grounding context) via its own exploration + question-generation blocks.
+# `tool_subset` is still what matters most: it scopes which tools can appear
+# together in a generated question, which is what keeps generation grounded
+# to a coherent, production-realistic workflow instead of arbitrary tool
+# combinations. `description`/`parameters`/`follow_up_prompts` are kept as
+# human-readable documentation of original intent, not literal flow inputs.
 #
 # materialize_seeds.py reads this file and cross-references the tool
 # subsets with the MCP Gateway's tools/list response to produce the
@@ -29,39 +42,70 @@ tiers:
     complexity: 1
     description: Single-tool calls exercising individual domain APIs
     scenarios:
-      - tool_subset: [tmf642_list_alarms]
+      - name: single_check_alarms
+        tool_subset: [tmf642listAlarm]
         description: "Check for {severity} alarms on the network"
         parameters:
           severity: [critical, major, minor, warning]
 
-      - tool_subset: [tmf628_list_performance_jobs]
+      - name: single_list_performance_jobs
+        tool_subset: [tmf628listMeasurementCollectionJob]
         description: "List performance monitoring jobs"
         parameters: {}
 
-      - tool_subset: [tmf621_create_trouble_ticket]
+      - name: single_create_trouble_ticket
+        tool_subset: [tmf621createTroubleTicket]
         description: "Create a trouble ticket for {category} issue"
         parameters:
           category: [network, hardware, software, security]
 
-      - tool_subset: [get_nwdaf_analytics]
+      - name: single_get_nwdaf_analytics
+        tool_subset: [nwdafget_nwdaf_analytics]
         description: "Get network analytics for {analytics_type}"
         parameters:
           analytics_type: [NF_LOAD, UE_MOBILITY, QOS_SUSTAINABILITY]
 
-      - tool_subset: [camara_verify_location]
+      - name: single_verify_device_location
+        tool_subset: [camaraverify_location]
         description: "Verify device location for {device_id}"
         parameters:
           device_id: [ue-001, ue-002, ue-003]
 
-      - tool_subset: [show_interfaces]
+      - name: single_show_interfaces
+        tool_subset: [telecomshow_interfaces]
         description: "Show network interfaces on {device}"
         parameters:
           device: [router-lab-01, switch-core-01]
 
-      - tool_subset: [show_bgp_summary]
+      - name: single_show_bgp_summary
+        tool_subset: [telecomshow_bgp_summary]
         description: "Display BGP neighbor summary on {device}"
         parameters:
           device: [router-lab-01, router-edge-01]
+
+      - name: single_check_authentication_subscription
+        tool_subset: [udrget_authentication_subscription]
+        description: "Check authentication subscription data for {supi}"
+        parameters:
+          supi: [imsi-999700000000001, imsi-999700000000002]
+
+      - name: single_check_roaming_status
+        tool_subset: [devicestatusget_roaming_status]
+        description: "Check roaming status for {device_id}"
+        parameters:
+          device_id: [ue-001, ue-002, ue-003]
+
+      - name: single_check_reachability_status
+        tool_subset: [devicestatusget_reachability_status]
+        description: "Check reachability status for {device_id}"
+        parameters:
+          device_id: [ue-001, ue-002, ue-003]
+
+      - name: single_check_network_type
+        tool_subset: [devicestatusget_connected_network_type]
+        description: "Check connected network type for {device_id}"
+        parameters:
+          device_id: [ue-001, ue-002, ue-003]
 
   # ─── Tier 2: Parallel ──────────────────────────────────────────────────
   # Independent tool calls to different domains that can run simultaneously.
@@ -71,20 +115,29 @@ tiers:
     complexity: 2
     description: Independent tool calls to different domains executed simultaneously
     scenarios:
-      - tool_subset: [tmf642_list_alarms, tmf621_list_trouble_tickets]
+      - name: parallel_alarms_and_tickets
+        tool_subset: [tmf642listAlarm, tmf621listTroubleTicket]
         description: "Check alarms and open tickets simultaneously"
         parameters: {}
 
-      - tool_subset: [get_nwdaf_analytics, show_interfaces]
+      - name: parallel_analytics_and_interfaces
+        tool_subset: [nwdafget_nwdaf_analytics, telecomshow_interfaces]
         description: "Gather network analytics and interface status in parallel"
         parameters: {}
 
-      - tool_subset: [tmf628_list_performance_jobs, tmf642_list_alarms]
+      - name: parallel_perf_jobs_and_alarms
+        tool_subset: [tmf628listMeasurementCollectionJob, tmf642listAlarm]
         description: "Review performance jobs and current alarms together"
         parameters: {}
 
-      - tool_subset: [camara_verify_location, get_nwdaf_analytics]
+      - name: parallel_location_and_analytics
+        tool_subset: [camaraverify_location, nwdafget_nwdaf_analytics]
         description: "Verify device location while checking network load"
+        parameters: {}
+
+      - name: parallel_roaming_and_location
+        tool_subset: [devicestatusget_roaming_status, camaraverify_location]
+        description: "Check roaming status and verify device location simultaneously"
         parameters: {}
 
   # ─── Tier 3: Sequential ────────────────────────────────────────────────
@@ -95,20 +148,34 @@ tiers:
     complexity: 3
     description: Dependent tool chains where each call uses results from the previous
     scenarios:
-      - tool_subset: [tmf642_list_alarms, tmf642_get_alarm, tmf621_create_trouble_ticket]
+      - name: sequential_alarm_to_ticket
+        tool_subset: [tmf642listAlarm, tmf642retrieveAlarm, tmf621createTroubleTicket]
         description: "List alarms, get details for the critical one, create a trouble ticket"
         parameters: {}
 
-      - tool_subset: [tmf628_list_performance_jobs, tmf628_get_tracking_record]
+      - name: sequential_perf_job_to_tracking
+        tool_subset: [tmf628listMeasurementCollectionJob, tmf628retrieveTrackingRecord]
         description: "List performance monitoring jobs, then get detailed tracking record for the failing one"
         parameters: {}
 
-      - tool_subset: [show_interfaces, show_interface_detail]
+      - name: sequential_interfaces_to_detail
+        tool_subset: [telecomshow_interfaces, telecomshow_interface_detail]
         description: "List all interfaces, then get detailed stats for the one with errors"
         parameters: {}
 
-      - tool_subset: [tmf642_list_alarms, get_nwdaf_analytics]
+      - name: sequential_alarm_to_analytics
+        tool_subset: [tmf642listAlarm, nwdafget_nwdaf_analytics]
         description: "List alarms, then check network analytics to correlate with alarm source"
+        parameters: {}
+
+      - name: sequential_analytics_to_auth_check
+        tool_subset: [nwdafget_nwdaf_analytics, udrget_authentication_subscription]
+        description: "Check network analytics for a device, then verify its authentication subscription state if anomalies are found"
+        parameters: {}
+
+      - name: sequential_alarm_to_roaming_check
+        tool_subset: [tmf642listAlarm, devicestatusget_roaming_status]
+        description: "List alarms, then check roaming status for the affected device"
         parameters: {}
 
   # ─── Tier 4: Multi-Turn ────────────────────────────────────────────────
@@ -119,19 +186,22 @@ tiers:
     complexity: 4
     description: User follow-up questions building on previous tool call results
     scenarios:
-      - tool_subset: [tmf642_list_alarms, tmf642_get_alarm, tmf621_create_trouble_ticket]
+      - name: multiturn_alarm_ticket_followup
+        tool_subset: [tmf642listAlarm, tmf642retrieveAlarm, tmf621createTroubleTicket]
         description: "List alarms, get details, create ticket, then follow up on ticket status"
         follow_up_prompts:
           - "What is the status of the ticket I just created?"
           - "Can you add more details about the alarm to the ticket?"
 
-      - tool_subset: [tmf628_list_performance_jobs, tmf628_get_tracking_record]
+      - name: multiturn_perf_trend_followup
+        tool_subset: [tmf628listMeasurementCollectionJob, tmf628retrieveTrackingRecord]
         description: "List jobs, get tracking record, then ask about trends"
         follow_up_prompts:
           - "How does this compare to yesterday's performance?"
           - "Which interfaces are affected by this degradation?"
 
-      - tool_subset: [get_nwdaf_analytics, show_interfaces, show_interface_detail]
+      - name: multiturn_analytics_interface_followup
+        tool_subset: [nwdafget_nwdaf_analytics, telecomshow_interfaces, telecomshow_interface_detail]
         description: "Check analytics, review interfaces, then drill into specific interface"
         follow_up_prompts:
           - "Show me more details on the interface with the highest error rate"
@@ -146,29 +216,52 @@ tiers:
     complexity: 5
     description: Observe-decide-act cycles combining multiple domains for fault prediction
     scenarios:
-      - tool_subset:
-          - tmf642_list_alarms
-          - get_nwdaf_analytics
-          - show_interface_detail
-          - tmf642_acknowledge_alarm
-          - tmf621_create_trouble_ticket
+      - name: closed_loop_alarm_correlation_remediation
+        tool_subset:
+          - tmf642listAlarm
+          - nwdafget_nwdaf_analytics
+          - telecomshow_interface_detail
+          - tmf642acknowledge_alarm
+          - tmf621createTroubleTicket
         description: "Detect alarm, correlate with network analytics, verify interface status, acknowledge alarm, create ticket"
         parameters: {}
 
-      - tool_subset:
-          - tmf628_list_performance_jobs
-          - tmf628_get_tracking_record
-          - tmf642_list_alarms
-          - get_nwdaf_analytics
-          - tmf621_create_trouble_ticket
+      - name: closed_loop_performance_degradation
+        tool_subset:
+          - tmf628listMeasurementCollectionJob
+          - tmf628retrieveTrackingRecord
+          - tmf642listAlarm
+          - nwdafget_nwdaf_analytics
+          - tmf621createTroubleTicket
         description: "Detect performance degradation, get tracking details, check for related alarms, verify with analytics, open incident ticket"
         parameters: {}
 
-      - tool_subset:
-          - show_interfaces
-          - show_interface_detail
-          - tmf642_list_alarms
-          - camara_verify_location
-          - tmf621_create_trouble_ticket
+      - name: closed_loop_interface_fault_escalation
+        tool_subset:
+          - telecomshow_interfaces
+          - telecomshow_interface_detail
+          - tmf642listAlarm
+          - camaraverify_location
+          - tmf621createTroubleTicket
         description: "Monitor interface errors, investigate affected interface, check for alarms, verify device location, escalate as trouble ticket"
+        parameters: {}
+
+      - name: closed_loop_device_connectivity_investigation
+        tool_subset:
+          - tmf642listAlarm
+          - devicestatusget_roaming_status
+          - devicestatusget_reachability_status
+          - nwdafget_nwdaf_analytics
+          - tmf621createTroubleTicket
+        description: "Check for alarms, check the affected device's roaming and reachability status, correlate with network analytics, create a ticket if a fault is confirmed"
+        parameters: {}
+
+      - name: closed_loop_device_security_anomaly_investigation
+        tool_subset:
+          - tmf642listAlarm
+          - udrget_authentication_subscription
+          - camaraverify_location
+          - devicestatusget_roaming_status
+          - tmf621createTroubleTicket
+        description: "Detect a suspicious alarm, verify the device's authentication subscription is valid, check its current location and roaming status, escalate with a ticket if something looks wrong"
         parameters: {}

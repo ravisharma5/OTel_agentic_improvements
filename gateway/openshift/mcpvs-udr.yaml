@@ -1,0 +1,12 @@
+# MCPVirtualServer: UDR TS 29.504/29.505 data-repository tools
+# Filters gateway tools/list to exactly 1 UDR tool
+# Tool name confirmed via live gateway discovery
+apiVersion: mcp.kuadrant.io/v1alpha1
+kind: MCPVirtualServer
+metadata:
+  name: udr-tools
+  namespace: otel25-gateway
+spec:
+  description: "UDR authentication-subscription data lookup tool"
+  tools:
+  - udrget_authentication_subscription

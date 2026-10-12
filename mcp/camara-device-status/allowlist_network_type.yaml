@@ -1,0 +1,11 @@
+# CAMARA Connected Network Type allowlist (documentation only -- explicit @mcp.tool() used)
+# Multi-spec domains use hand-written tools to avoid MCPServerRegistration double-prefixing.
+server_name: mcp-camara-device-status
+spec_path: specs/camara_connected_network_type.yaml
+backend_env_var: CAMARA_NETWORK_TYPE_BASE_URL
+operations:
+  - operation_id: getConnectedNetworkType
+    path: /retrieve
+    method: POST
+    tool_name: get_connected_network_type
+    description: Get the mobile network technology a device is currently connected to

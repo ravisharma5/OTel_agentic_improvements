@@ -1,0 +1,11 @@
+# CAMARA Device Roaming Status allowlist (documentation only -- explicit @mcp.tool() used)
+# Multi-spec domains use hand-written tools to avoid MCPServerRegistration double-prefixing.
+server_name: mcp-camara-device-status
+spec_path: specs/camara_device_roaming_status.yaml
+backend_env_var: CAMARA_ROAMING_BASE_URL
+operations:
+  - operation_id: getRoamingStatus
+    path: /retrieve
+    method: POST
+    tool_name: get_roaming_status
+    description: Get a device's current roaming status and visited country information

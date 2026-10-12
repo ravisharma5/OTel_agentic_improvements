@@ -1,6 +1,6 @@
 # NWDAF MCP Server -- TS 29.520 Analytics & Events (3 tools from 2 specs)
 #
-# Per D-10a: multi-spec domains use explicit @mcp.tool() decorators instead of
+# Multi-spec domains use explicit @mcp.tool() decorators instead of
 # from_openapi() to avoid MCPServerRegistration tool-name double-prefixing.
 #
 # Specs covered:
@@ -9,11 +9,11 @@
 #
 # Backend routing:
 #   AnalyticsInfo uses NWDAF_BASE_URL ConfigMap key.
-#   EventsSubscription uses NWDAF_EVENTS_BASE_URL ConfigMap key (Phase 4, D-15).
+#   EventsSubscription uses NWDAF_EVENTS_BASE_URL ConfigMap key.
 #   The ConfigMap provides host:port ONLY (no path component).
 #   Tool functions MUST append API-relative paths in code.
 #
-# Transport selection (Phase 4, D-15):
+# Transport selection:
 #   NWDAF_PROTOCOL ConfigMap key selects the HTTP transport:
 #     - "h2c": HTTP/2 cleartext prior-knowledge (for NextGCore)
 #     - "http1.1": standard HTTP/1.1 (for Prism or other HTTP/1.1 backends)
@@ -23,7 +23,7 @@
 # NextGCore path divergence:
 #   Prism strips the OpenAPI servers base path -- serves analytics at /analytics.
 #   NextGCore uses the full path /nnwdaf-analyticsinfo/v1/analytics.
-#   For Prism (D-11 verification target), appending /analytics to host:port works.
+#   For Prism, appending /analytics to host:port works.
 #   For NextGCore, the operator would update ConfigMap NWDAF_BASE_URL to include
 #   the server base path (e.g., http://nextgcore:7777/nnwdaf-analyticsinfo/v1).
 #
@@ -33,13 +33,26 @@
 #   For NextGCore, NWDAF_EVENTS_BASE_URL carries the EventsSubscription base path
 #   (e.g., http://nextgcore:7777/nnwdaf-eventssubscription/v1).
 #
-# ConfigMap change detection (Phase 4):
+# ConfigMap change detection:
 #   Uses SHA-256 content hashing instead of st_mtime. Kubernetes updates
 #   ConfigMap volumes via atomic symlink swaps (..data -> ..2024_01_01_12_00_00),
 #   and st_mtime on the resolved file does not always change reliably depending
 #   on CRI and storage driver. Content hashing is always reliable.
 #   os.path.realpath() comparison is used as a secondary signal to detect
 #   symlink rotation even if content hash computation fails.
+#
+# h2c client implementation note:
+#   httpx2.AsyncClient wrapping a raw httpcore2.AsyncConnectionPool as its
+#   transport (the h2c branch below used to do exactly this) hits a real bug
+#   in httpx2==2.13.1/httpcore2==2.13.1 (the versions this server locks):
+#   httpcore2's connection pool calls request.url.scheme.decode() on a value
+#   httpx2 already passes as a str, raising AttributeError on every request.
+#   Confirmed live against the actual running mcp-nwdaf pod and the live
+#   NextGCore NWDAF backend -- raw TCP connects fine, only the httpx2/httpcore2
+#   h2c path fails, meaning every get_nwdaf_analytics() call against NextGCore
+#   has been failing in production. _H2CClient below drives httpcore2's pool
+#   directly instead, bypassing httpx2's broken translation layer -- the same
+#   fix already applied in mcp/udr/server.py, where this bug was first found.
 
 import hashlib
 import json
@@ -86,8 +99,66 @@ _nwdaf_events_url = os.environ.get(
 )  # fallback for local dev
 
 
-def _create_client(base_url: str, protocol: str) -> httpx2.AsyncClient:
-    """Create an httpx2 AsyncClient with transport selected by protocol.
+class _H2CResponse:
+    """Minimal response wrapper matching the subset of httpx2.Response this server uses."""
+
+    def __init__(self, status_code: int, body: bytes):
+        self.status_code = status_code
+        self._body = body
+
+    @property
+    def text(self) -> str:
+        return self._body.decode("utf-8", errors="replace")
+
+    def raise_for_status(self) -> None:
+        if self.status_code >= 400:
+            raise RuntimeError(f"HTTP {self.status_code}: {self.text}")
+
+
+class _H2CClient:
+    """Thin async client over a raw httpcore2.AsyncConnectionPool for h2c prior-knowledge.
+
+    See the module docstring's "h2c client implementation note" for why this
+    exists instead of httpx2.AsyncClient(transport=httpcore2.AsyncConnectionPool(...)).
+    """
+
+    def __init__(self, base_url: str):
+        self._base_url = base_url.rstrip("/")
+        self._pool = httpcore2.AsyncConnectionPool(http1=False, http2=True)
+
+    async def get(self, path: str, params: dict | None = None) -> _H2CResponse:
+        url = f"{self._base_url}{path}"
+        if params:
+            import urllib.parse
+            url += "?" + urllib.parse.urlencode(params)
+        response = await self._pool.request("GET", url)
+        body = await response.aread()
+        return _H2CResponse(response.status, body)
+
+    async def post(self, path: str, json: dict | None = None) -> _H2CResponse:
+        url = f"{self._base_url}{path}"
+        content = None
+        headers = []
+        if json is not None:
+            import json as _json
+            content = _json.dumps(json).encode("utf-8")
+            headers = [(b"content-type", b"application/json")]
+        response = await self._pool.request("POST", url, headers=headers, content=content)
+        body = await response.aread()
+        return _H2CResponse(response.status, body)
+
+    async def delete(self, path: str) -> _H2CResponse:
+        url = f"{self._base_url}{path}"
+        response = await self._pool.request("DELETE", url)
+        body = await response.aread()
+        return _H2CResponse(response.status, body)
+
+    async def aclose(self) -> None:
+        await self._pool.aclose()
+
+
+def _create_client(base_url: str, protocol: str):
+    """Create a client with transport selected by protocol.
 
     Args:
         base_url: The base URL for the backend (host:port, possibly with path).
@@ -95,14 +166,11 @@ def _create_client(base_url: str, protocol: str) -> httpx2.AsyncClient:
                   "http1.1" (or anything else) for standard HTTP/1.1.
 
     Returns:
-        An httpx2.AsyncClient configured with the appropriate transport.
+        An _H2CClient for "h2c", or an httpx2.AsyncClient for "http1.1".
     """
     if protocol == "h2c":
-        # Prior-knowledge mode: disable HTTP/1.1, force HTTP/2.
-        # Sends the HTTP/2 connection preface directly on cleartext connections.
-        transport = httpcore2.AsyncConnectionPool(http1=False, http2=True)
         logger.info("Creating h2c (HTTP/2 cleartext) client for %s", base_url)
-        return httpx2.AsyncClient(base_url=base_url, transport=transport)
+        return _H2CClient(base_url)
     else:
         # Default HTTP/1.1 transport (works with Prism and other HTTP/1.1 backends).
         logger.info("Creating HTTP/1.1 client for %s", base_url)

@@ -1,0 +1,11 @@
+# UDR DataRepository allowlist (documentation only -- explicit @mcp.tool() used instead of CLI)
+# Matches the pattern used for mcp/nwdaf and mcp/camara.
+server_name: mcp-udr
+spec_path: specs/nudr_dr_authsubscription_bundled.yaml
+backend_env_var: UDR_BASE_URL
+operations:
+  - operation_id: QueryAuthSubsData
+    path: /subscription-data/{ueId}/authentication-data/authentication-subscription
+    method: GET
+    tool_name: get_authentication_subscription
+    description: Retrieve a subscriber's authentication subscription data from UDR

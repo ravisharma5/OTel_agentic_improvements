@@ -1,0 +1,16 @@
+# MCPServerRegistration: register CAMARA Device Status MCP server
+# Prefix "devicestatus" -- distinguishes from the existing "camara" prefix
+# (CAMARA Device Location). All discovered tools prefixed with devicestatus_
+# targetRef points to the HTTPRoute that routes to mcp-camara-device-status backend
+apiVersion: mcp.kuadrant.io/v1alpha1
+kind: MCPServerRegistration
+metadata:
+  name: camara-device-status
+  namespace: otel25-gateway
+spec:
+  prefix: devicestatus
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: mcp-camara-device-status-route
+  path: /mcp

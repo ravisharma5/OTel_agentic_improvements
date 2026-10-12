@@ -32,8 +32,14 @@
 
 ### Industry Gaps Document
 
-- [ ] **GAPS-01**: Draft industry gaps document covering: MCP conformance testing framework, standard telco API simulators, agent deployment reference architecture on OpenShift
-- [ ] **GAPS-02**: Identify frameworks and standards that help operators deploy AI agents with Red Hat tools and platforms
+- [x] **GAPS-01**: Draft industry gaps document covering: MCP conformance testing framework, standard telco API simulators, agent deployment reference architecture on OpenShift
+- [x] **GAPS-02**: Identify frameworks and standards that help operators deploy AI agents with Red Hat tools and platforms
+
+### Domain Breadth Expansion
+
+- [x] **EXPAND-01**: Evaluate AMF, SMF, and UDM/UDR as MCP server candidates against the already-running NextGCore deployment, and build the viable one. AMF and UDM not viable (AMF: upstream loopback-bind bug; UDM: systemic NRF self-registration bug); SMF reachable but confirmed 3GPP-spec-level NAS-signaling passthrough, not a tool-calling fit. UDR confirmed viable and built (`get_authentication_subscription`, real end-to-end data)
+- [x] **EXPAND-02**: Build a CAMARA Device Status MCP server (3 tools: roaming, reachability, connected network type -- Prism-mocked, verified end-to-end)
+- [x] **EXPAND-03**: Register both new servers behind the Kuadrant MCP Gateway and add matching curriculum scenarios to `seed-scenarios.yaml` (9 new scenarios across single_tool/parallel/sequential/closed_loop, prioritizing cross-domain combinations)
 
 ## v2 Requirements
 
@@ -90,12 +96,15 @@
 | SDG-03 | Phase 4 | Pending |
 | SDG-04 | Phase 4 | Pending |
 | SDG-05 | Phase 4 | Pending |
-| GAPS-01 | Phase 5 | Pending |
-| GAPS-02 | Phase 5 | Pending |
+| GAPS-01 | Phase 5 | Done |
+| GAPS-02 | Phase 5 | Done |
+| EXPAND-01 | Phase 6 | Done |
+| EXPAND-02 | Phase 6 | Done |
+| EXPAND-03 | Phase 6 | Done |
 
 **Coverage:**
-- v1 requirements: 18 total
-- Mapped to phases: 18
+- v1 requirements: 21 total
+- Mapped to phases: 21
 - Unmapped: 0
 
 ---

@@ -17,7 +17,8 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 2: MCP Tooling Foundation** - Build OpenAPI-to-MCP conversion tooling and deploy MCP-Telecom device-layer toolkit (completed 2026-10-04)
 - [x] **Phase 3: MCP Domain Servers and Gateway** - Build 20 fault-prediction MCP tools and compose behind Kuadrant MCP Gateway (completed 2026-10-05)
 - [ ] **Phase 4: SDG Pipeline and Dataset Production** - Run sdg_hub distillation, produce 5K-10K verified training examples, deliver to Farbod's team
-- [ ] **Phase 5: Industry Gaps Document** - Draft gaps document covering MCP conformance, telco API simulators, and agent deployment architecture
+- [x] **Phase 5: Industry Gaps Document** - Draft gaps document covering MCP conformance, telco API simulators, and agent deployment architecture (completed 2026-10-11)
+- [x] **Phase 6: Domain Breadth Expansion** - Add 3GPP core (UDR) and CAMARA (Device Status) MCP servers, with matching curriculum scenarios, to scale SDG data beyond the current fault-management slice (completed 2026-10-12)
 
 ## Phase Details
 
@@ -143,16 +144,36 @@ Plans:
   1. Document covers three gap areas: MCP conformance testing framework, standard telco API simulators, and agent deployment reference architecture on OpenShift
   2. Document identifies specific frameworks, standards, and Red Hat tools/platforms that help operators deploy AI agents in production
 
-**Plans**: TBD
+**Plans:** 1/1 plans complete
 
 Plans:
 
-- [ ] 05-01: TBD
+- [x] 05-01 -- Research (internal evidence from Phases 1-4 + external landscape) and draft `docs/industry-gaps-telecom-ai-agents.md`
+
+### Phase 6: Domain Breadth Expansion
+
+**Goal**: Training data generation covers more than the current TMF642/628/621 + NWDAF + one CAMARA API slice, by adding MCP servers for UDR (3GPP core) and CAMARA Device Status, with curriculum scenarios to match
+**Depends on**: Phase 3 (gateway composition pattern), Phase 4 (SDG pipeline, for eventually generating data against the new servers)
+**Requirements**: EXPAND-01, EXPAND-02, EXPAND-03
+**Success Criteria** (what must be TRUE):
+
+  1. AMF, SMF, and UDM are evaluated with evidence (not assumed) and found not viable, for three distinct and documented reasons -- AMF: upstream NextGCore loopback-bind bug; SMF: 3GPP-spec-level NAS-signaling passthrough (confirmed via the actual TS 29.502 spec, not implementation-specific, so switching 5G cores wouldn't fix it); UDM: a systemic NextGCore NRF self-registration bug (every NF advertises `0.0.0.0` as its own address, breaking NRF-based service discovery for any NF-to-NF call)
+  2. UDR is confirmed viable (real end-to-end data flowing for authentication-subscription data) and wrapped as an MCP server
+  3. CAMARA Device Status is wrapped as an MCP server
+  4. All viable new servers are registered behind the Kuadrant MCP Gateway and have matching curriculum scenarios added to `seed-scenarios.yaml` across the existing 5-tier structure, prioritizing cross-domain scenarios with the existing TMF/NWDAF/device-layer tools over single-domain ones
+
+**Plans:** 3/3 plans complete
+
+Plans:
+
+- [x] 06-01 (research/probe only): AMF blocked on an upstream NextGCore dev-profile bug (SBI binds `127.0.0.1` despite its own config declaring `0.0.0.0`). SMF confirmed reachable and spec-real, but its only operations are NAS-signaling passthrough -- confirmed spec-level via TS 29.502, not NextGCore-specific. UDM blocked by a systemic NRF self-registration bug (`0.0.0.0` advertised as every NF's own address). **UDR confirmed viable** -- real end-to-end data flowing for authentication-subscription data, via a provisioned test subscriber (found and used `nextgcore-webui`, an undeployed-but-present provisioning binary in the existing image).
+- [x] 06-02: Built the CAMARA Device Status MCP server -- new `mcp/camara-device-status/` directory (separate from `mcp/camara/`, different upstream repo and 3 independent specs), 3 tools (`get_roaming_status`, `get_reachability_status`, `get_connected_network_type`), Prism-mocked (no live backend exists for Device Status in this project), vendored r2.2 specs already shipped realistic examples so no enrichment was needed. Deployed and verified end-to-end over the real MCP protocol. Gateway registration and curriculum scenarios deferred to 06-03.
+- [x] 06-03: Built the UDR MCP server (1 tool, `get_authentication_subscription`), fixed a production regression in NWDAF's h2c client found along the way (ported the fix forward, see `04-LEARNINGS.md`), registered both UDR and CAMARA Device Status behind the Kuadrant MCP Gateway (6 new gateway config files, both `READY: True`), and added 9 new curriculum scenarios to `seed-scenarios.yaml` across single_tool/parallel/sequential/closed_loop, prioritizing cross-domain combinations with existing TMF/NWDAF/CAMARA tools.
 
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 -> 2 -> 3 -> 4. Phase 5 runs in parallel.
+Phases execute in numeric order: 1 -> 2 -> 3 -> 4. Phase 5 runs in parallel. Phase 6 depends on 3 and 4 but is independently scoped additional breadth, not a blocker for either.
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
@@ -160,4 +181,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4. Phase 5 runs in parallel.
 | 2. MCP Tooling Foundation | 3/3 | Complete    | 2026-10-04 |
 | 3. MCP Domain Servers and Gateway | 6/6 | Complete    | 2026-10-05 |
 | 4. SDG Pipeline and Dataset Production | 6/7 | In Progress|  |
-| 5. Industry Gaps Document | 0/1 | Not started | - |
+| 5. Industry Gaps Document | 1/1 | Complete    | 2026-10-11 |
+| 6. Domain Breadth Expansion | 3/3 | Complete    | 2026-10-12 |
