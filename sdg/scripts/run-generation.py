@@ -305,7 +305,14 @@ def _load_seed_dataframe(seeds_path: Path, tiers: list[str] | None = None):
 # it should be safe. Watch the first few tiers/attempts after raising this
 # for new failure modes (vLLM queueing/backpressure, Langflow agent
 # concurrency limits) that a request-level timeout fix wouldn't address.
-GENERATION_MAX_CONCURRENCY = 4
+#
+# 2026-10-12: raised 4 -> 8 now that the acting-agent model
+# (redhataigemma-4-31b-it) runs 2 replicas behind llm-d's router/scheduler
+# (one on the A10G node, one on the new L40S node) -- doubling concurrency to
+# match doubled serving capacity. Not yet validated under this exact
+# combination (new 2-replica model + newly-distributed MCP gateway across 3
+# nodes on sandbox1330, all changing in the same run) -- watch closely.
+GENERATION_MAX_CONCURRENCY = 8
 
 
 def _generate_once(flow, seeds: list[dict], runtime_params: dict, max_concurrency: int) -> list[dict]:
