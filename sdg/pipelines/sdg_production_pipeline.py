@@ -60,18 +60,33 @@ _CLIENT_SECRET_SECRET = "keycloak-client-secret-sdg-pipeline"
 _VLLM_KEY_SECRET = "maas-rhdp-api-key"
 _LANGFLOW_KEY_SECRET = "langflow-api-key-sdg-pipeline"
 
-# GCP service-account key for Vertex AI (teacher model, flow-training.yaml's
-# model_config: vertex_ai/gemini-3.8-flash). LiteLLM's Vertex provider needs
-# real Application Default Credentials, not just an API key -- confirmed live
-# (2026-10-12): every LLMChatBlock call failed with
+# GCP service-account key for Vertex AI (teacher model, previously
+# flow-training.yaml's model_config: vertex_ai/gemini-3.8-flash). LiteLLM's
+# Vertex provider needs real Application Default Credentials, not just an
+# API key -- confirmed live (2026-10-12): every LLMChatBlock call failed with
 # google.auth.exceptions.DefaultCredentialsError until this was mounted.
 # Created as: oc create secret generic gcp-vertex-sa-key -n otel25-sdg
 #   --from-file=key.json=<service-account-key.json>
 # Service account: sdg-pipeline-vertex@na-telco-adoption.iam.gserviceaccount.com
-# (roles/aiplatform.user on na-telco-adoption) -- not created by this pipeline.
+#
+# STILL MOUNTED BUT CURRENTLY UNUSED (2026-10-12): the service account has
+# zero IAM role bindings on na-telco-adoption, and neither the project
+# owner's nor this session's gcloud identity can grant roles/aiplatform.user
+# (setIamPolicy denied) -- confirmed live via a 403 on
+# aiplatform.endpoints.predict after auth itself started working. Switched
+# flow-training.yaml to the Gemini Developer API (GEMINI_API_KEY below)
+# instead of waiting on that grant. Left this wiring in place since it's
+# harmless and switching back is a one-line change in flow-training.yaml
+# once someone with Owner/IAM Admin grants the role.
 _GCP_SA_SECRET = "gcp-vertex-sa-key"
 _GCP_SA_MOUNT_PATH = "/var/run/secrets/gcp"
 _GOOGLE_APPLICATION_CREDENTIALS = f"{_GCP_SA_MOUNT_PATH}/key.json"
+
+# Gemini Developer API (AI Studio) key -- sidesteps GCP IAM entirely, unlike
+# the Vertex path above. Created as: oc create secret generic gemini-api-key
+#   -n otel25-sdg --from-literal=GEMINI_API_KEY=<key>
+# Confirmed live against generativelanguage.googleapis.com before wiring in.
+_GEMINI_API_KEY_SECRET = "gemini-api-key"
 
 # PipelineTask.set_env_variable() only accepts literal str values in this kfp
 # version (kfp/dsl/pipeline_task.py), not dynamic pipeline-parameter
@@ -222,6 +237,11 @@ def _wire_env(task: dsl.PipelineTask) -> dsl.PipelineTask:
         mount_path=_GCP_SA_MOUNT_PATH,
     )
     task = task.set_env_variable("GOOGLE_APPLICATION_CREDENTIALS", _GOOGLE_APPLICATION_CREDENTIALS)
+    task = kubernetes.use_secret_as_env(
+        task,
+        secret_name=_GEMINI_API_KEY_SECRET,
+        secret_key_to_env={"GEMINI_API_KEY": "GEMINI_API_KEY"},
+    )
     return task
 
 

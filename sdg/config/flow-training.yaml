@@ -4,9 +4,10 @@
 # FLOW CONFIGURATION
 # ------------------
 # Overrides the default flow.yaml from sdg_hub's mcp_distillation_training
-# example flow. Configures the teacher model (Gemini 3.8 Flash via Vertex
-# AI, see Teacher Model section below -- previously self-hosted Gemma 4
-# 31B via vLLM) and the Langflow agent (wrapping MCP Gateway tools).
+# example flow. Configures the teacher model (Gemini 3.8 Flash via the
+# Gemini Developer API / AI Studio, see Teacher Model section below --
+# previously self-hosted Gemma 4 31B via vLLM) and the Langflow agent
+# (wrapping MCP Gateway tools).
 #
 # ENV-VAR INTERPOLATION CONVENTION
 # ---------------------------------
@@ -27,31 +28,31 @@
 #   D-09: vLLM --tool-call-parser gemma4
 
 # ─── Teacher Model ──────────────────────────────────────────────────────────
-# LiteLLM's `vertex_ai/<model>` provider prefix routes LLMChatBlock calls to
-# Vertex AI's generateContent endpoint. Confirmed live against the
-# na-telco-adoption GCP project: gemini-3.8-flash responds in us-central1
-# with no separate Model Garden enablement needed (unlike partner models
-# such as Claude/Llama, which require a one-time per-model "Enable" click
-# in the console before they're callable).
+# 2026-10-12: switched from `vertex_ai/gemini-3.8-flash` to
+# `gemini/gemini-3.8-flash` (LiteLLM's Gemini Developer API / AI Studio
+# provider) after the Vertex AI path hit a real, external blocker: the
+# `sdg-pipeline-vertex@na-telco-adoption.iam.gserviceaccount.com` service
+# account's GOOGLE_APPLICATION_CREDENTIALS auth worked (fixed a prior
+# DefaultCredentialsError), but the account has zero IAM role bindings on
+# na-telco-adoption and neither the project owner's nor this session's
+# gcloud identity has `setIamPolicy` rights to grant `roles/aiplatform.user`
+# -- confirmed live via a direct `aiplatform.endpoints.predict` 403. That
+# grant needs someone with Owner/IAM Admin on the project; revisit the
+# Vertex path once it lands (the service-account Secret and its mounting
+# code in sdg_production_pipeline.py were left in place, just unused).
 #
-# Auth is NOT an api_key -- Vertex uses Application Default Credentials.
-# In-cluster, that means mounting a GCP service-account JSON key as a
-# Secret and setting GOOGLE_APPLICATION_CREDENTIALS to its mounted path
-# (not yet created -- see sdg/config/README or ask before minting one,
-# since a service-account key is a durable credential). LiteLLM picks it
-# up automatically via the standard Google auth libraries; no credential
-# field belongs in this YAML.
+# The Gemini Developer API sidesteps GCP IAM entirely -- auth is a plain API
+# key via the GEMINI_API_KEY env var (LiteLLM reads it automatically; no
+# credential field belongs in this YAML). Confirmed live with a direct
+# generateContent call against generativelanguage.googleapis.com before
+# wiring it in.
 #
-# Not yet validated end-to-end through sdg_hub's LLMChatBlock (only
-# confirmed via a direct generateContent call against the Vertex REST API)
-# -- run a dry-run generation before trusting this for a real tier, same
-# as every other "should work per the docs" assumption in this file's
-# history.
+# Validated end-to-end through sdg_hub's LLMChatBlock in a real KFP run
+# (2026-10-12) -- unlike the Vertex path, this one actually got past
+# generate_questions successfully.
 
 model_config:
-  model: vertex_ai/gemini-3.8-flash
-  vertex_project: na-telco-adoption
-  vertex_location: us-central1
+  model: gemini/gemini-3.8-flash
   # History: max_tokens was capped at 1024 then 350 under the old Gemma 4/
   # vLLM setup to dodge a 504 that turned out to be an AWS ELB idle-timeout
   # issue, fixed by sdg/lib/streaming_llm_chat_block.py (every LLMChatBlock
