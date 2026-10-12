@@ -4607,10 +4607,7 @@
           "example": "TR-2024-00142"
         },
         "description": {
-          "example": [
-            "acknowledge",
-            "clear"
-          ],
+          "example": "acknowledge",
           "type": "string",
           "description": "Describes the action being done, such as: ack, clear"
         },

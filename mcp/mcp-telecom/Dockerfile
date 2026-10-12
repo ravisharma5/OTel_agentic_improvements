@@ -22,8 +22,11 @@ RUN uv sync --no-dev --frozen
 # Copy source code
 COPY src/ ./src/
 
-# Copy config scaffolds -- devices.yaml.example as devices.yaml for runtime
-COPY devices.yaml.example ./devices.yaml
+# Copy config scaffolds -- devices.yaml is the real Phase 4 (04-06) Containerlab
+# inventory; devices.yaml.example is kept in the repo only as a template for new
+# deployments that haven't provisioned real devices yet (do not COPY it here --
+# it silently masked the real inventory for every image built after 04-06 landed)
+COPY devices.yaml ./devices.yaml
 COPY command_allowlist.yaml ./command_allowlist.yaml
 
 # OpenShift arbitrary-UID support:

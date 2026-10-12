@@ -512,3 +512,59 @@ connection errors.
 structured response (`{"status": "no_content", ...}` for the tested event type -- expected, since no
 real NF-load event has occurred in this NextGCore deployment; the point was confirming the request
 reaches the backend and gets a real HTTP response, not a connection failure).
+
+---
+
+## 2026-10-12 — closed_loop gap re-diagnosed: not a model problem, two real tooling bugs upstream of question generation
+
+**What prompted this:** re-examined `closed_loop_coverage_failed.jsonl` directly (not just the 2026-10-11
+summary) after the two system-prompt fixes failed. Both fixes patched `Agent-EXpSZ`'s system prompt --
+the node that acts on a question. Tracing the actual pipeline fields (`sampled_tools`, `server_understanding`,
+`question_gen_messages`, `target_tools`, `question`) shows the information loss happens one stage earlier,
+in **question generation**, which is itself downstream of **exploration**. The question-gen prompt was
+given the full 5-tool schema set and the scenario's explicit step-by-step description every time -- it
+wasn't under-provisioned. It just never wrote a question needing the tools exploration had already
+flagged as broken, because its own instructions say to ground questions in real, working data.
+
+**Two concrete, previously-undiscovered bugs found, confirmed live, and fixed:**
+
+1. **TMF628 `TrackingRecord.description` schema-validation failure.** The vendored spec
+   (`backends/specs/tmf628_performance_v4.0.0.swagger.json`) declared this field `"type": "string"` but
+   its D-16-enrichment `"example"` value was mistakenly authored as a list, `["acknowledge", "clear"]`,
+   instead of a single string. Prism's static mode (the D-16 amendment default) served this malformed
+   example verbatim, so every live call to `tmf628listMeasurementCollectionJob` returned a list where a
+   string was required -- exactly the "tool returned a list for a field defined as a string" failure
+   exploration recorded, and exactly why `closed_loop_performance_degradation`'s generated questions
+   never once mention TMF628 across all 20 failed attempts: exploration learned the tool was broken
+   before the question was ever written. Scanned every vendored spec for the same `type: string` +
+   list-valued `example` pattern -- this was the only instance. Fixed (`example: "acknowledge"`),
+   image rebuilt and pushed, `prism-tmf628` redeployed, verified live (`curl` against the pod now
+   returns `"description":"acknowledge"`, a plain string).
+
+2. **`mcp-telecom`'s Dockerfile baked in the placeholder device inventory, not the real one.** Phase 4
+   Plan 06 built and committed a real Containerlab device inventory (`mcp/mcp-telecom/devices.yaml`,
+   3 Nokia SR Linux devices with real Clabernetes service DNS names) alongside the original template
+   (`devices.yaml.example`). But `mcp/mcp-telecom/Dockerfile` line 26 hardcoded
+   `COPY devices.yaml.example ./devices.yaml` -- every image built after 04-06 landed silently reverted
+   to the single fake `router-lab-01.example.com` placeholder entry, regardless of what was in the real
+   file. Confirmed live: the running pod's `/app/devices.yaml` was the placeholder, matching
+   exploration's exact finding ("`telecomlist_devices` returning 'No devices configured'... renders all
+   `telecom*` tools unusable"), which is why `telecomshow_interface_detail` was dropped from every
+   `closed_loop_alarm_correlation_remediation` question. Fixed (`COPY devices.yaml ./devices.yaml`),
+   image rebuilt and pushed, `mcp-telecom` redeployed, verified live (pod's `/app/devices.yaml` now
+   shows the real 3-device Containerlab inventory).
+
+**Revised conclusion (supersedes 2026-10-11's "stronger external teacher" recommendation):** the
+2026-10-11 entry's finding that agent-side system-prompt engineering doesn't fix the gap still stands --
+but the recommended next step was wrong. A stronger teacher model would make the same rational choice to
+avoid tools it discovers are broken during exploration; the fix was never about model judgment, agent
+prompting, or teacher strength. It was two ordinary bugs (a malformed spec example, a Dockerfile COPY
+pointing at the wrong file) that made two real tools genuinely non-functional during exploration, which
+then correctly propagated into the questions never asking for them. Both are now fixed and deployed.
+
+**Not yet done:** sdg_hub's `generate_tier` step caches exploration results keyed by run -- the stale
+"TMF628 is broken" / "no devices configured" understanding from the 2026-10-10 run will keep being
+reused until a fresh (non-cached) exploration pass runs against these two fixed tools. The teacher model
+(vLLM) is not currently deployed on sandbox2667 (waiting on GPU node availability), so a fresh
+closed_loop generation run to confirm the fix closes the coverage gap hasn't been possible yet -- this is
+the first thing to try once the model is up.
