@@ -60,6 +60,19 @@ _CLIENT_SECRET_SECRET = "keycloak-client-secret-sdg-pipeline"
 _VLLM_KEY_SECRET = "maas-rhdp-api-key"
 _LANGFLOW_KEY_SECRET = "langflow-api-key-sdg-pipeline"
 
+# GCP service-account key for Vertex AI (teacher model, flow-training.yaml's
+# model_config: vertex_ai/gemini-3.8-flash). LiteLLM's Vertex provider needs
+# real Application Default Credentials, not just an API key -- confirmed live
+# (2026-10-12): every LLMChatBlock call failed with
+# google.auth.exceptions.DefaultCredentialsError until this was mounted.
+# Created as: oc create secret generic gcp-vertex-sa-key -n otel25-sdg
+#   --from-file=key.json=<service-account-key.json>
+# Service account: sdg-pipeline-vertex@na-telco-adoption.iam.gserviceaccount.com
+# (roles/aiplatform.user on na-telco-adoption) -- not created by this pipeline.
+_GCP_SA_SECRET = "gcp-vertex-sa-key"
+_GCP_SA_MOUNT_PATH = "/var/run/secrets/gcp"
+_GOOGLE_APPLICATION_CREDENTIALS = f"{_GCP_SA_MOUNT_PATH}/key.json"
+
 # PipelineTask.set_env_variable() only accepts literal str values in this kfp
 # version (kfp/dsl/pipeline_task.py), not dynamic pipeline-parameter
 # references the way container command/args placeholders do -- so unlike
@@ -203,6 +216,12 @@ def _wire_env(task: dsl.PipelineTask) -> dsl.PipelineTask:
         secret_name=_LANGFLOW_KEY_SECRET,
         secret_key_to_env={"LANGFLOW_API_KEY": "LANGFLOW_API_KEY"},
     )
+    task = kubernetes.use_secret_as_volume(
+        task,
+        secret_name=_GCP_SA_SECRET,
+        mount_path=_GCP_SA_MOUNT_PATH,
+    )
+    task = task.set_env_variable("GOOGLE_APPLICATION_CREDENTIALS", _GOOGLE_APPLICATION_CREDENTIALS)
     return task
 
 
