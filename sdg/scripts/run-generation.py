@@ -306,13 +306,22 @@ def _load_seed_dataframe(seeds_path: Path, tiers: list[str] | None = None):
 # for new failure modes (vLLM queueing/backpressure, Langflow agent
 # concurrency limits) that a request-level timeout fix wouldn't address.
 #
-# 2026-10-12: raised 4 -> 8 now that the acting-agent model
-# (redhataigemma-4-31b-it) runs 2 replicas behind llm-d's router/scheduler
-# (one on the A10G node, one on the new L40S node) -- doubling concurrency to
-# match doubled serving capacity. Not yet validated under this exact
-# combination (new 2-replica model + newly-distributed MCP gateway across 3
-# nodes on sandbox1330, all changing in the same run) -- watch closely.
-GENERATION_MAX_CONCURRENCY = 8
+# 2026-10-12: raised 4 -> 8 to match the model's new 2-replica capacity, but
+# reverted back to 4 the same day -- confirmed live that Langflow (the
+# orchestrating agent in front of the model, NOT the model itself) is the
+# real bottleneck at this concurrency. Langflow runs as a single-replica
+# StatefulSet backed by SQLite on a per-pod PVC (LANGFLOW_DATABASE_URL=
+# sqlite:////data/langflow.db) -- it cannot be horizontally scaled without a
+# shared-database migration (a new replica would start with an empty DB and
+# no flows configured), so doubling the model's replicas did not add any
+# usable concurrency headroom on the agent side. At concurrency=8, one
+# run_expert_trajectory request exceeded the connector's 120s client-side
+# timeout even though Langflow itself wasn't CPU-starved -- confirmed via
+# oc adm top (21m cores, 1.8Gi mem) while jobs were still completing
+# successfully around the failure. 4 is the last value proven to run
+# error-free through explore_server/generate_questions/early
+# run_expert_trajectory rows before 8 was tried.
+GENERATION_MAX_CONCURRENCY = 4
 
 
 def _generate_once(flow, seeds: list[dict], runtime_params: dict, max_concurrency: int) -> list[dict]:
