@@ -4,7 +4,12 @@
 #
 # This script is designed to be re-runnable: if the Keycloak pod restarts and
 # loses its ephemeral PostgreSQL data, re-running this script reconstructs
-# the realm, client, user, and k8s Secret.
+# the realm, both clients (mcp-gateway, sdg-pipeline), the mcp-agent user, and
+# both k8s Secrets.
+#
+# Manages two clients because they serve different grant types:
+#   - mcp-gateway: Resource-Owner-Password-Credentials (grant via mcp-agent user)
+#   - sdg-pipeline: pure client_credentials (service account, no user)
 #
 # Usage: bash configure-keycloak.sh [NAMESPACE] [KEYCLOAK_CR_NAME]
 #   NAMESPACE       - Kubernetes namespace (default: otel25-gateway)
@@ -21,14 +26,14 @@ echo "Keycloak CR: $KEYCLOAK_CR"
 echo ""
 
 # --- Step 1: Extract admin credentials ---
-echo "[1/8] Extracting admin credentials..."
+echo "[1/10] Extracting admin credentials..."
 ADMIN_SECRET="${KEYCLOAK_CR}-initial-admin"
 ADMIN_USER=$(oc get secret "$ADMIN_SECRET" -n "$NAMESPACE" -o jsonpath='{.data.username}' | base64 -d)
 ADMIN_PASS=$(oc get secret "$ADMIN_SECRET" -n "$NAMESPACE" -o jsonpath='{.data.password}' | base64 -d)
 echo "  Admin user: $ADMIN_USER"
 
 # --- Step 2: Get Keycloak route hostname ---
-echo "[2/8] Getting Keycloak route hostname..."
+echo "[2/10] Getting Keycloak route hostname..."
 KEYCLOAK_HOST=$(oc get route -n "$NAMESPACE" -l app=keycloak -o jsonpath='{.items[0].spec.host}' 2>/dev/null)
 if [ -z "$KEYCLOAK_HOST" ]; then
   # Fall back to looking by name pattern
@@ -38,7 +43,7 @@ KEYCLOAK_URL="https://${KEYCLOAK_HOST}"
 echo "  Keycloak URL: $KEYCLOAK_URL"
 
 # --- Step 3: Obtain admin access token ---
-echo "[3/8] Obtaining admin access token..."
+echo "[3/10] Obtaining admin access token..."
 TOKEN_RESPONSE=$(curl -sk -X POST "${KEYCLOAK_URL}/realms/master/protocol/openid-connect/token" \
   -d "grant_type=password" \
   -d "client_id=admin-cli" \
@@ -53,13 +58,22 @@ fi
 echo "  Admin token obtained (${#ADMIN_TOKEN} chars)"
 
 # --- Step 4: Create realm "mcp" (skip if exists) ---
-echo "[4/8] Creating realm 'mcp'..."
+echo "[4/10] Creating realm 'mcp'..."
 REALM_CHECK=$(curl -sk -o /dev/null -w "%{http_code}" \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   "${KEYCLOAK_URL}/admin/realms/mcp")
 
 if [ "$REALM_CHECK" = "200" ]; then
-  echo "  Realm 'mcp' already exists, skipping."
+  echo "  Realm 'mcp' already exists -- ensuring accessTokenLifespan is current."
+  # Widened from the original 300s: Langflow's internal MCP session cache was
+  # observed holding a token past its 300s expiry (reusing it ~3 minutes after
+  # expiry on a DELETE /mcp session-teardown call), causing spurious 401s even
+  # with a working 2-minute refresh CronJob. 1800s gives a large safety margin
+  # over whatever staleness window that cache introduces.
+  curl -sk -X PUT "${KEYCLOAK_URL}/admin/realms/mcp" \
+    -H "Authorization: Bearer $ADMIN_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d '{"accessTokenLifespan": 1800}' > /dev/null
 else
   curl -sk -X POST "${KEYCLOAK_URL}/admin/realms" \
     -H "Authorization: Bearer $ADMIN_TOKEN" \
@@ -67,13 +81,13 @@ else
     -d '{
       "realm": "mcp",
       "enabled": true,
-      "accessTokenLifespan": 300
+      "accessTokenLifespan": 1800
     }'
   echo "  Realm 'mcp' created."
 fi
 
 # --- Step 5: Create client "mcp-gateway" (skip if exists) ---
-echo "[5/8] Creating client 'mcp-gateway'..."
+echo "[5/10] Creating client 'mcp-gateway'..."
 EXISTING_CLIENTS=$(curl -sk \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   "${KEYCLOAK_URL}/admin/realms/mcp/clients?clientId=mcp-gateway")
@@ -112,7 +126,7 @@ else
 fi
 
 # --- Step 6: Retrieve client secret ---
-echo "[6/8] Retrieving client secret..."
+echo "[6/10] Retrieving client secret..."
 SECRET_RESPONSE=$(curl -sk \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
   "${KEYCLOAK_URL}/admin/realms/mcp/clients/${CLIENT_UUID}/client-secret")
@@ -131,7 +145,7 @@ fi
 echo "  Client secret retrieved (${#CLIENT_SECRET} chars)"
 
 # --- Step 7: Create test user "mcp-agent" (skip if exists) ---
-echo "[7/8] Creating test user 'mcp-agent'..."
+echo "[7/10] Creating test user 'mcp-agent'..."
 
 EXISTING_USERS=$(curl -sk \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
@@ -196,16 +210,82 @@ curl -sk -X PUT "${KEYCLOAK_URL}/admin/realms/mcp/users/${USER_UUID}" \
   }" > /dev/null
 echo "  User profile completed and required actions cleared for 'mcp-agent'."
 
-# --- Step 8: Create/update k8s Secret ---
-echo "[8/8] Creating/updating k8s Secret 'keycloak-client-secret-mcp-gateway'..."
+# --- Step 8: Create client "sdg-pipeline" (skip if exists) ---
+echo "[8/10] Creating client 'sdg-pipeline'..."
+EXISTING_SDG_CLIENTS=$(curl -sk \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  "${KEYCLOAK_URL}/admin/realms/mcp/clients?clientId=sdg-pipeline")
+
+SDG_CLIENT_COUNT=$(echo "$EXISTING_SDG_CLIENTS" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))" 2>/dev/null || echo "0")
+
+if [ "$SDG_CLIENT_COUNT" != "0" ]; then
+  echo "  Client 'sdg-pipeline' already exists, skipping creation."
+  SDG_CLIENT_UUID=$(echo "$EXISTING_SDG_CLIENTS" | python3 -c "import sys,json; print(json.load(sys.stdin)[0]['id'])")
+else
+  # Pure client_credentials grant (service account, no user) -- diverges from
+  # mcp-gateway's ROPC pattern intentionally, since the sdg pipeline scripts
+  # (materialize_seeds.py's acquire_jwt) assume a true OAuth2 client_credentials flow.
+  CREATE_SDG_RESPONSE=$(curl -sk -X POST "${KEYCLOAK_URL}/admin/realms/mcp/clients" \
+    -H "Authorization: Bearer $ADMIN_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d '{
+      "clientId": "sdg-pipeline",
+      "enabled": true,
+      "clientAuthenticatorType": "client-secret",
+      "serviceAccountsEnabled": true,
+      "publicClient": false,
+      "directAccessGrantsEnabled": false,
+      "standardFlowEnabled": false,
+      "protocol": "openid-connect"
+    }' -w "\n%{http_code}" 2>&1)
+
+  SDG_HTTP_CODE=$(echo "$CREATE_SDG_RESPONSE" | tail -1)
+  if [ "$SDG_HTTP_CODE" != "201" ] && [ "$SDG_HTTP_CODE" != "409" ]; then
+    echo "  WARNING: Client creation returned HTTP $SDG_HTTP_CODE"
+  fi
+
+  EXISTING_SDG_CLIENTS=$(curl -sk \
+    -H "Authorization: Bearer $ADMIN_TOKEN" \
+    "${KEYCLOAK_URL}/admin/realms/mcp/clients?clientId=sdg-pipeline")
+  SDG_CLIENT_UUID=$(echo "$EXISTING_SDG_CLIENTS" | python3 -c "import sys,json; print(json.load(sys.stdin)[0]['id'])")
+  echo "  Client 'sdg-pipeline' created (UUID: $SDG_CLIENT_UUID)."
+fi
+
+# --- Step 9: Retrieve sdg-pipeline client secret ---
+echo "[9/10] Retrieving 'sdg-pipeline' client secret..."
+SDG_SECRET_RESPONSE=$(curl -sk \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  "${KEYCLOAK_URL}/admin/realms/mcp/clients/${SDG_CLIENT_UUID}/client-secret")
+
+SDG_CLIENT_SECRET=$(echo "$SDG_SECRET_RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('value',''))" 2>/dev/null || true)
+if [ -z "$SDG_CLIENT_SECRET" ]; then
+  curl -sk -X POST \
+    -H "Authorization: Bearer $ADMIN_TOKEN" \
+    "${KEYCLOAK_URL}/admin/realms/mcp/clients/${SDG_CLIENT_UUID}/client-secret" > /dev/null
+  SDG_SECRET_RESPONSE=$(curl -sk \
+    -H "Authorization: Bearer $ADMIN_TOKEN" \
+    "${KEYCLOAK_URL}/admin/realms/mcp/clients/${SDG_CLIENT_UUID}/client-secret")
+  SDG_CLIENT_SECRET=$(echo "$SDG_SECRET_RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('value',''))")
+fi
+echo "  Client secret retrieved (${#SDG_CLIENT_SECRET} chars)"
+
+# --- Step 10: Create/update k8s Secrets ---
+echo "[10/10] Creating/updating k8s Secrets..."
+echo "  keycloak-client-secret-mcp-gateway..."
 oc create secret generic keycloak-client-secret-mcp-gateway \
   -n "$NAMESPACE" \
   --from-literal=CLIENT_SECRET="$CLIENT_SECRET" \
   --from-literal=USER_PASSWORD="$USER_PASSWORD" \
   --dry-run=client -o yaml | oc apply -f - 2>&1
 
+echo "  keycloak-client-secret-sdg-pipeline..."
+oc create secret generic keycloak-client-secret-sdg-pipeline \
+  -n "$NAMESPACE" \
+  --from-literal=CLIENT_SECRET="$SDG_CLIENT_SECRET" \
+  --dry-run=client -o yaml | oc apply -f - 2>&1
+
 echo ""
-echo "=== Verifying token endpoint ==="
+echo "=== Verifying token endpoints ==="
 TOKEN_TEST=$(curl -sk -X POST "${KEYCLOAK_URL}/realms/mcp/protocol/openid-connect/token" \
   -d "grant_type=password" \
   -d "client_id=mcp-gateway" \
@@ -215,23 +295,47 @@ TOKEN_TEST=$(curl -sk -X POST "${KEYCLOAK_URL}/realms/mcp/protocol/openid-connec
 
 ACCESS_TOKEN=$(echo "$TOKEN_TEST" | python3 -c "import sys,json; print(json.load(sys.stdin).get('access_token',''))" 2>/dev/null || true)
 
+SDG_TOKEN_TEST=$(curl -sk -X POST "${KEYCLOAK_URL}/realms/mcp/protocol/openid-connect/token" \
+  -d "grant_type=client_credentials" \
+  -d "client_id=sdg-pipeline" \
+  -d "client_secret=${SDG_CLIENT_SECRET}")
+
+SDG_ACCESS_TOKEN=$(echo "$SDG_TOKEN_TEST" | python3 -c "import sys,json; print(json.load(sys.stdin).get('access_token',''))" 2>/dev/null || true)
+
 echo ""
 echo "=== Configuration Summary ==="
 echo "  Keycloak URL:  $KEYCLOAK_URL"
 echo "  Realm:         mcp"
-echo "  Client:        mcp-gateway"
+echo "  Client:        mcp-gateway (ROPC via mcp-agent user)"
+echo "  Client:        sdg-pipeline (client_credentials, service account)"
 echo "  User:          mcp-agent"
 echo "  K8s Secret:    keycloak-client-secret-mcp-gateway (namespace: $NAMESPACE)"
+echo "  K8s Secret:    keycloak-client-secret-sdg-pipeline (namespace: $NAMESPACE)"
 
-if [ -n "$ACCESS_TOKEN" ] && [ "$ACCESS_TOKEN" != "" ]; then
-  echo "  Token test:    PASS (access_token received, ${#ACCESS_TOKEN} chars)"
-  echo ""
+MCP_GATEWAY_OK=false
+SDG_PIPELINE_OK=false
+[ -n "$ACCESS_TOKEN" ] && [ "$ACCESS_TOKEN" != "" ] && MCP_GATEWAY_OK=true
+[ -n "$SDG_ACCESS_TOKEN" ] && [ "$SDG_ACCESS_TOKEN" != "" ] && SDG_PIPELINE_OK=true
+
+if [ "$MCP_GATEWAY_OK" = "true" ]; then
+  echo "  Token test (mcp-gateway):  PASS (access_token received, ${#ACCESS_TOKEN} chars)"
+else
+  echo "  Token test (mcp-gateway):  FAIL"
+  echo "    Response: $TOKEN_TEST"
+fi
+
+if [ "$SDG_PIPELINE_OK" = "true" ]; then
+  echo "  Token test (sdg-pipeline): PASS (access_token received, ${#SDG_ACCESS_TOKEN} chars)"
+else
+  echo "  Token test (sdg-pipeline): FAIL"
+  echo "    Response: $SDG_TOKEN_TEST"
+fi
+
+echo ""
+if [ "$MCP_GATEWAY_OK" = "true" ] && [ "$SDG_PIPELINE_OK" = "true" ]; then
   echo "=== SUCCESS ==="
   exit 0
 else
-  echo "  Token test:    FAIL"
-  echo "  Response:      $TOKEN_TEST"
-  echo ""
-  echo "=== FAILED (token retrieval failed) ==="
+  echo "=== FAILED (one or more token retrievals failed) ==="
   exit 1
 fi

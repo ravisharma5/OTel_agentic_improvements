@@ -1,0 +1,113 @@
+# garage -- minimal single-node S3-compatible object storage for sdg-dspa.
+#
+# Used in place of the DS Pipelines Operator's self-managed Minio option
+# because MinIO's public container images (quay.io/minio/minio and
+# docker.io/minio/minio, both dated release tags and :latest) now return
+# "unauthorized"/"access denied" on anonymous pull -- a real, current MinIO
+# distribution policy change, not a bad tag. Garage (https://garagehq.deuxfleurs.fr/,
+# AGPL-3.0, Deuxfleurs) is a lightweight open-source S3-compatible store
+# whose images (dxflrs/garage) are still publicly pullable, and explicitly
+# supports a single-node mode (replication_factor = 1) for exactly this kind
+# of dev/test use case.
+#
+# This is a single Deployment replica, not the 3-node HA StatefulSet pattern
+# some Garage guides use -- we don't need replication or HA for pipeline
+# artifact storage in a research pipeline.
+#
+# Wired into sdg-dspa via objectStorage.externalStorage (not .minio, which is
+# specific to driving MinIO's own CLI) -- see sdg/openshift/sdg-dspa.yaml.
+#
+# Prerequisites: the garage-config ConfigMap (garage.toml, holds a generated
+# rpc_secret and admin_token -- see session notes for the exact
+# `openssl rand -hex` generation commands) must exist first.
+#
+# After this is Running, bootstrap it once (layout assign + bucket + key):
+#   oc exec deploy/garage -n otel25-sdg -- /garage layout assign <node-id> -z dc1 -c 1
+#   oc exec deploy/garage -n otel25-sdg -- /garage layout apply --version 1
+#   oc exec deploy/garage -n otel25-sdg -- /garage bucket create sdg-pipeline-artifacts
+#   oc exec deploy/garage -n otel25-sdg -- /garage key create sdg-dspa-key
+#   oc exec deploy/garage -n otel25-sdg -- /garage bucket allow sdg-pipeline-artifacts --read --write --key sdg-dspa-key
+# Then put the printed Key ID / Secret Key into a Secret the DSPA references.
+#
+# Apply with: oc apply -f sdg/openshift/garage.yaml
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: garage
+  namespace: otel25-sdg
+  labels:
+    app: garage
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: garage
+  template:
+    metadata:
+      labels:
+        app: garage
+    spec:
+      containers:
+      - name: garage
+        image: dxflrs/garage:v1.0.1
+        command: ["/garage", "server"]
+        ports:
+        - containerPort: 3900
+          name: s3-api
+        - containerPort: 3901
+          name: rpc
+        - containerPort: 3903
+          name: admin
+        volumeMounts:
+        - name: config
+          mountPath: /etc/garage.toml
+          subPath: garage.toml
+        - name: data
+          mountPath: /data
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+      volumes:
+      - name: config
+        configMap:
+          name: garage-config
+      - name: data
+        persistentVolumeClaim:
+          claimName: garage-data
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: garage-data
+  namespace: otel25-sdg
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: garage
+  namespace: otel25-sdg
+  labels:
+    app: garage
+spec:
+  selector:
+    app: garage
+  ports:
+  - name: s3-api
+    port: 3900
+    targetPort: 3900
+  - name: rpc
+    port: 3901
+    targetPort: 3901
+  - name: admin
+    port: 3903
+    targetPort: 3903

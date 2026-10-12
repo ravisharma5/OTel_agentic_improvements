@@ -1,0 +1,64 @@
+# sdg-dspa -- Data Science Pipelines server for otel25-sdg.
+#
+# No DataSciencePipelinesApplication existed in this namespace before this
+# (confirmed live: the sdg-pipeline workbench's own creation logged "DSPA CR
+# not found in namespace, skipping Elyra secret creation"). This provisions
+# one using the DS Pipelines Operator's self-managed Minio + MariaDB option
+# (objectStorage.minio.deploy / database.mariaDB.deploy) rather than an
+# external S3/DB, since this is a research/dev pipeline, not a
+# production-SLA workload -- the operator's own docs call the self-managed
+# Minio path "unsupported, primarily for development and testing," which is
+# exactly this use case. Avoids any cross-namespace dependency on the
+# cluster's other shared Minio instance (seen in the `ogx` namespace's DSPA).
+#
+# Prerequisite: the sdg-dspa-s3-credentials Secret must exist first (holds
+# the Minio access/secret key the operator will configure Minio with --
+# generate with e.g. `openssl rand -hex 20` for the secret key).
+#
+# Apply with: oc apply -f sdg/openshift/sdg-dspa.yaml
+# Watch rollout: oc get datasciencepipelinesapplication sdg-dspa -n otel25-sdg -o yaml
+# Dashboard: the RHOAI Dashboard's Pipelines tab for this project will show
+#   runs once this is Ready and a pipeline has been uploaded.
+
+apiVersion: datasciencepipelinesapplications.opendatahub.io/v1
+kind: DataSciencePipelinesApplication
+metadata:
+  name: sdg-dspa
+  namespace: otel25-sdg
+spec:
+  dspVersion: v2
+  apiServer:
+    deploy: true
+    enableOauth: true
+    cacheEnabled: true
+    enableSamplePipeline: false
+    pipelineStore: kubernetes
+  database:
+    mariaDB:
+      deploy: true
+      pipelineDBName: mlpipeline
+      pvcSize: 5Gi
+      username: mlpipeline
+  objectStorage:
+    # MinIO's public images (quay.io/minio/minio, docker.io/minio/minio --
+    # dated tags and :latest) now return "unauthorized"/"access denied" on
+    # anonymous pull, a current MinIO distribution policy change, not a bad
+    # tag. Using Garage (https://garagehq.deuxfleurs.fr/, AGPL-3.0) instead,
+    # self-deployed as a single-node instance (sdg/openshift/garage.yaml) --
+    # wired as externalStorage, not objectStorage.minio, since that
+    # sub-resource is specific to driving MinIO's own management CLI.
+    externalStorage:
+      host: garage.otel25-sdg.svc.cluster.local:3900
+      bucket: sdg-pipeline-artifacts
+      region: garage
+      scheme: http
+      s3CredentialsSecret:
+        secretName: sdg-dspa-s3-credentials
+        accessKey: AWS_ACCESS_KEY_ID
+        secretKey: AWS_SECRET_ACCESS_KEY
+  persistenceAgent:
+    deploy: true
+    numWorkers: 2
+  scheduledWorkflow:
+    deploy: true
+    cronScheduleTimezone: UTC

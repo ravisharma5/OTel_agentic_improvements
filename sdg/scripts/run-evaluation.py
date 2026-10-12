@@ -1,34 +1,36 @@
 #!/usr/bin/env python3
-"""Run sdg_hub three-stage verification, automatic OSFT schema validation, and dual-format serialization.
+"""Pass raw generation output through column mapping, automatic OSFT schema
+validation, and dual-format serialization.
 
 Per amended D-04, OSFT validation runs as an unconditional automatic call
-to sdg.lib.osft_validation.validate_osft_line immediately after the eval
-flow completes, before any output is treated as final. This is NOT a
-separate manual step -- it is part of this script's normal execution path.
+to sdg.lib.osft_validation.validate_osft_line before any output is treated
+as final. This is NOT a separate manual step -- it is part of this script's
+normal execution path.
 
-Flow configs are loaded with os.path.expandvars() to expand env-var
-placeholders (e.g. ${VLLM_API_KEY}) that yaml.safe_load() leaves as
-literal strings.
-
-Three stages of verification:
-  1. Format check: compute_tool_metrics (tool_recall, tool_precision, etc.)
-  2. Execution check: inherent in the generation flow (tools were actually called)
-  3. Semantic check: LLM judge scores on 6 dimensions
-
-After the eval flow's quality filtering, this script:
+D-02's planned "mcp_distillation_evaluation flow for three-stage
+verification" does not exist in sdg_hub==0.9.4 (confirmed live, 2026-10-10 --
+see _run_evaluation_flow()'s docstring for the full finding). The three
+verification stages it was meant to add are already covered upstream, inside
+run-generation.py's training flow and tool-coverage gate, so this script now:
+  - Loads each tier's raw JSONL as-is (already quality-filtered upstream)
   - Applies an explicit COLUMN_MAP to bridge sdg_hub output columns to
     the serializer's expected input keys (fails hard on missing required keys)
   - Runs OSFT schema validation on every serialized row (unconditionally)
   - Produces both single-turn and multi-turn OSFT JSONL via the serializer
     (D-20: both formats delivered so Farbod's team decides what to train on)
 
+No flow config/model to load anymore (no flow is called here) -- removed the
+--config flag and its YAML-loading machinery, which became dead code once
+_run_evaluation_flow() stopped calling a flow.
+
 Usage:
     python -m sdg.scripts.run-evaluation
     python -m sdg.scripts.run-evaluation --input-dir sdg/data/raw/ --output-dir sdg/data/filtered/
 
 References:
-    D-02:  mcp_distillation_evaluation flow for three-stage verification
-    D-04 (amended): OSFT validation as automatic Python call after eval flow
+    D-02:  mcp_distillation_evaluation flow for three-stage verification --
+           superseded, see _run_evaluation_flow()'s docstring
+    D-04 (amended): OSFT validation as automatic Python call
     D-20:  Both single-turn and multi-turn OSFT JSONL produced
 """
 from __future__ import annotations
@@ -36,22 +38,8 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import os
 import sys
 from pathlib import Path
-
-try:
-    import yaml
-except ImportError:
-    yaml = None
-
-# sdg_hub imports -- deferred to runtime so the script can be inspected
-# without sdg_hub installed
-try:
-    from sdg_hub import FlowRegistry, Flow  # type: ignore[import-untyped]
-except ImportError:
-    FlowRegistry = None  # type: ignore[assignment,misc]
-    Flow = None  # type: ignore[assignment,misc]
 
 # OSFT serializer -- UNDERSCORE filename, proper package import
 from sdg.scripts.serialize_osft import serialize_single_turn, serialize_multi_turn
@@ -59,75 +47,32 @@ from sdg.scripts.serialize_osft import serialize_single_turn, serialize_multi_tu
 # OSFT validation -- library module, per amended D-04
 from sdg.lib.osft_validation import validate_osft_line, validate_osft_file
 
+# Tool-trace column name -- same constant tool_coverage_report.py and the
+# rejection-sampling gate already rely on, confirmed empirically against
+# real output. Reused here (rather than re-guessing) for COLUMN_MAP below.
+from sdg.lib.trace_utils import DEFAULT_TRACE_COLUMN
+
 logger = logging.getLogger(__name__)
-
-
-# ─── Config Loading with Env-Var Interpolation ─────────────────────────────
-
-
-def _expand_vars_recursive(obj):
-    """Recursively apply os.path.expandvars to all string values in a dict/list."""
-    if isinstance(obj, str):
-        expanded = os.path.expandvars(obj)
-        if "${" in expanded:
-            logger.warning(
-                "Unexpanded env var detected after expandvars: %r "
-                "(set the variable or it will be passed as a literal string)",
-                expanded,
-            )
-        return expanded
-    elif isinstance(obj, dict):
-        return {k: _expand_vars_recursive(v) for k, v in obj.items()}
-    elif isinstance(obj, list):
-        return [_expand_vars_recursive(item) for item in obj]
-    return obj
-
-
-def _load_config(path: str) -> dict:
-    """Load a YAML config file with os.path.expandvars() on all string values.
-
-    yaml.safe_load() does NOT expand ${VAR} placeholders -- they come through
-    as literal strings. This function walks the parsed dict/list tree and
-    expands every string value via os.path.expandvars().
-
-    Args:
-        path: Path to the YAML config file.
-
-    Returns:
-        The fully-expanded config dict.
-
-    Raises:
-        ImportError: If PyYAML is not installed.
-        FileNotFoundError: If the config file does not exist.
-    """
-    if yaml is None:
-        raise ImportError("PyYAML is required: pip install pyyaml")
-
-    config_path = Path(path)
-    if not config_path.exists():
-        raise FileNotFoundError(f"Config file not found: {path}")
-
-    with open(config_path) as f:
-        raw = yaml.safe_load(f)
-
-    if raw is None:
-        return {}
-
-    return _expand_vars_recursive(raw)
 
 
 # ─── Column Mapping ───────────────────────────────────────────────────────
 #
-# sdg_hub's 18-block pipeline produces output columns that may differ from
+# sdg_hub's 22-block training flow produces output columns that differ from
 # the serializer's expected input keys.  This mapping bridges the gap.
 #
-# Known sdg_hub output columns (from RESEARCH.md block descriptions):
-#   - "question"         -> serializer "question"  (often exact match)
-#   - "agent_text"       -> serializer "answer"    (needs rename)
-#   - "response_text"    -> serializer "answer"    (alternate name)
-#   - "tool_trace"       -> serializer "tool_trace" (often exact match)
-#   - "agent_tool_trace" -> serializer "tool_trace" (alternate name)
-#   - "tool_list"        -> serializer "tools"     (needs rename)
+# Real sdg_hub output columns (confirmed empirically against production
+# output, 2026-10-10 -- the "agent_text"/"response_text"/"tool_trace"/
+# "agent_tool_trace" guesses below, from early RESEARCH.md-era notes, never
+# actually matched anything and went uncaught because this code path was
+# never exercised by a run that survived long enough to reach it until then):
+#   - "question"                      -> serializer "question"   (exact match)
+#   - "extract_agent_text_text"       -> serializer "answer"     (AgentResponseExtractorBlock's extract_text=True output; {block_name}_text convention)
+#   - DEFAULT_TRACE_COLUMN            -> serializer "tool_trace" (same constant tool_coverage_report.py and the rejection-sampling gate rely on, not re-guessed here)
+#   - "tool_list"                     -> serializer "tools"      (needs rename)
+#
+# Kept the old guessed names too (harmless, never matches anything in the
+# real output) in case a different flow version or block-naming convention
+# ever produces them.
 #
 # If a required key cannot be resolved after mapping, this script FAILS
 # HARD (raises ValueError) rather than silently skipping -- core pipeline
@@ -135,8 +80,10 @@ def _load_config(path: str) -> dict:
 
 COLUMN_MAP = {
     "question": "question",
+    "extract_agent_text_text": "answer",
     "agent_text": "answer",
     "response_text": "answer",
+    DEFAULT_TRACE_COLUMN: "tool_trace",
     "tool_trace": "tool_trace",
     "agent_tool_trace": "tool_trace",
     "tool_list": "tools",
@@ -144,6 +91,13 @@ COLUMN_MAP = {
 
 # Keys the serializer requires
 _REQUIRED_SERIALIZER_KEYS = {"question", "tool_trace", "answer", "tools"}
+
+# Passed through as-is (not required, but needed downstream for multi-turn
+# routing in _to_multi_turn_trace -- 'tier' distinguishes curriculum tiers
+# that produce genuine multi-round conversations (multi_turn, closed_loop)
+# from ones that are naturally single-exchange; 'turns' is sdg_hub's own
+# multi-round output column, if present, for those tiers.
+_PASSTHROUGH_KEYS = {"tier", "turns"}
 
 
 def _map_columns(row: dict, row_index: int) -> dict:
@@ -176,6 +130,12 @@ def _map_columns(row: dict, row_index: int) -> dict:
     # Also pass through any columns that are already in serializer key form
     for key in _REQUIRED_SERIALIZER_KEYS:
         if key in row and key not in mapped:
+            mapped[key] = row[key]
+
+    # Pass through tier/turns unmapped -- needed by _to_multi_turn_trace,
+    # not required by the single-turn serializer path.
+    for key in _PASSTHROUGH_KEYS:
+        if key in row:
             mapped[key] = row[key]
 
     # Validate all required keys are present
@@ -216,26 +176,50 @@ def _map_columns(row: dict, row_index: int) -> dict:
 
 
 def _run_evaluation_flow(
-    config: dict,
     input_file: Path,
     output_dir: Path,
 ) -> list[dict]:
-    """Run the sdg_hub evaluation flow on a raw JSONL file.
+    """Pass a raw generation JSONL file through to the filtered-output stage.
 
-    Performs three-stage verification:
-      1. Format check (compute_tool_metrics)
-      2. Execution check (inherent in generation)
-      3. Semantic check (LLM judge)
+    Originally called a sdg_hub "evaluation flow" (format/execution/semantic
+    three-stage verification) here. Confirmed live (2026-10-10, first time
+    this stage actually ran against real production data): no flow named
+    "MCP Server Distillation Evaluation" exists in sdg_hub==0.9.4's registry
+    -- that was a design-time assumption from early research that never
+    matched the real package. The only registered evaluation-category flow
+    (id `eager-path-837`, name "Agent Tool-Use Evaluation",
+    flows/evaluation/mcp_eval_benchmark/model_evaluation/flow.yaml) is a
+    different tool entirely: it scores a model's trace *against an
+    independent expert/gold-standard trace*
+    (required columns: question, expert_answer_truncated,
+    expert_trace_formatted, model_answer, model_trace_formatted) -- we have
+    no such reference dataset, and it would need a `.generate()` call
+    (confirmed via get_dataset_requirements()/dir(flow): no Flow in this
+    package exposes `.evaluate()` at all, every flow's entrypoint is
+    `.generate()`).
 
-    Returns the quality-filtered output rows.
+    In practice the three stages this was meant to add are already covered
+    upstream, inside run-generation.py's training flow and the tool-coverage
+    gate built on top of it:
+      1. Format check: parse_question_fields / parse_quality_score
+         (TagParserBlock) structurally parse every row; rows that fail to
+         parse don't survive to this point.
+      2. Execution check: run_expert_trajectory (AgentBlock) actually calls
+         the live MCP Gateway tools -- a trace with no real tool execution
+         wouldn't exist in the output.
+      3. Semantic check: score_question_quality / score_response_quality
+         (StreamingLLMChatBlock judges) plus their ColumnValueFilterBlock
+         gates already dropped rows below the configured quality thresholds,
+         and the tool-coverage rejection-sampling gate (04-LEARNINGS.md,
+         2026-10-09) additionally verifies every intended tool was called.
+
+    So this function is now a pass-through (load rows, write them to
+    output_dir unchanged) rather than a second quality-filtering pass --
+    kept as its own function/call site so Step 2 (column mapping) and Step 3
+    (OSFT validation + delivery) below don't need to change, and so a real
+    second-stage check can be reintroduced here later without touching the
+    rest of the pipeline if one is ever actually needed.
     """
-    if FlowRegistry is None or Flow is None:
-        raise ImportError(
-            "sdg_hub is required: pip install sdg_hub "
-            "(see https://github.com/redhat-ai-tools/sdg-hub)"
-        )
-
-    # Load input data
     rows = []
     with open(input_file) as f:
         for line in f:
@@ -247,53 +231,61 @@ def _run_evaluation_flow(
         logger.warning("No rows in %s -- skipping", input_file)
         return []
 
-    # Discover and load the evaluation flow
-    FlowRegistry.discover_flows()
-    flow_path = FlowRegistry.get_flow_path("MCP Server Distillation Evaluation")
-    flow = Flow.from_yaml(flow_path)
-
-    # Apply model config from our override config
-    model_config = config.get("model_config", {})
-
-    # Run the evaluation flow
-    logger.info(
-        "Running evaluation flow on %s (%d rows)...",
-        input_file.name, len(rows),
-    )
-    output = flow.evaluate(
-        dataset=rows,
-        model_config=model_config,
-    )
-
-    # Convert output to list of dicts
-    results = []
-    if hasattr(output, "iterrows"):
-        for _, row in output.iterrows():
-            results.append(row.to_dict())
-    elif isinstance(output, list):
-        results = output
-    else:
-        try:
-            results = list(output)
-        except TypeError:
-            logger.error("Unexpected output type from flow: %s", type(output))
-            raise
-
-    # Write filtered output
     output_dir.mkdir(parents=True, exist_ok=True)
     filtered_file = output_dir / input_file.name
     with open(filtered_file, "w") as f:
-        for record in results:
+        for record in rows:
             f.write(json.dumps(record, default=str) + "\n")
 
     logger.info(
-        "Evaluation: %d/%d rows passed quality filter -> %s",
-        len(results), len(rows), filtered_file,
+        "%s: %d rows passed through (quality filtering already done "
+        "upstream in run-generation.py) -> %s",
+        input_file.name, len(rows), filtered_file,
     )
-    return results
+    return rows
 
 
 # ─── OSFT Validation and Serialization ─────────────────────────────────────
+
+# Curriculum tiers whose seed-scenarios.yaml entries carry follow_up_prompts
+# and so can produce a genuine multi-round sdg_hub 'turns' output. All other
+# tiers (single_tool, parallel, sequential) are naturally one-exchange and
+# are wrapped as a trivial 1-turn record for the multi-turn delivery file.
+MULTI_TURN_TIERS = {"multi_turn", "closed_loop"}
+
+
+def _to_multi_turn_trace(row: dict) -> dict:
+    """Build the {turns, tools} shape serialize_multi_turn() expects.
+
+    Rows from MULTI_TURN_TIERS carry sdg_hub's native 'turns' list when
+    present. Rows from other tiers -- and multi_turn/closed_loop rows where
+    sdg_hub did not populate 'turns' -- are naturally a single exchange, so
+    they are wrapped as one turn. Without this wrapping, calling
+    serialize_multi_turn() directly on a flat {question, tool_trace, answer,
+    tools} row produces a degenerate record (system message only, no turns)
+    because serialize_multi_turn() reads a 'turns' key that flat rows never
+    have.
+
+    Args:
+        row: A column-mapped row (output of _map_columns), optionally
+            carrying 'tier' and 'turns' passthrough keys.
+
+    Returns:
+        Dict with 'turns' (list of {question, tool_trace, answer} dicts)
+        and 'tools', ready for serialize_multi_turn().
+    """
+    if row.get("tier") in MULTI_TURN_TIERS and row.get("turns"):
+        return {"turns": row["turns"], "tools": row.get("tools", [])}
+    return {
+        "turns": [
+            {
+                "question": row["question"],
+                "tool_trace": row["tool_trace"],
+                "answer": row["answer"],
+            }
+        ],
+        "tools": row.get("tools", []),
+    }
 
 
 def _validate_and_serialize(
@@ -351,10 +343,24 @@ def _validate_and_serialize(
             serialized = serialize_single_turn(row)
             f.write(json.dumps(serialized) + "\n")
 
+    multi_turn_osft_errors = []
     with open(multi_turn_path, "w") as f:
-        for row in validated_rows:
-            serialized = serialize_multi_turn(row)
+        for i, row in enumerate(validated_rows):
+            serialized = serialize_multi_turn(_to_multi_turn_trace(row))
+            errors = validate_osft_line(serialized)
+            if errors:
+                multi_turn_osft_errors.append({"row": i, "errors": errors})
+                logger.warning(
+                    "Row %d failed multi-turn OSFT validation: %s", i, errors
+                )
             f.write(json.dumps(serialized) + "\n")
+
+    if multi_turn_osft_errors:
+        logger.warning(
+            "Multi-turn OSFT validation flagged %d/%d rows -- written anyway "
+            "since they already passed single-turn validation; review before delivery",
+            len(multi_turn_osft_errors), len(validated_rows),
+        )
 
     logger.info(
         "Delivery files written: %s (%d rows), %s (%d rows)",
@@ -379,6 +385,7 @@ def _validate_and_serialize(
         "total_mapped": len(mapped_rows),
         "osft_validated": len(validated_rows),
         "osft_dropped": len(osft_errors),
+        "multi_turn_osft_flagged": len(multi_turn_osft_errors),
         "delivery_files": [str(single_turn_path), str(multi_turn_path)],
     }
 
@@ -390,8 +397,8 @@ def build_parser() -> argparse.ArgumentParser:
     """Build the CLI argument parser."""
     parser = argparse.ArgumentParser(
         description=(
-            "Run sdg_hub three-stage verification, automatic OSFT validation "
-            "(D-04), and dual-format serialization."
+            "Column-map raw generation output, run automatic OSFT validation "
+            "(D-04), and produce dual-format delivery JSONL."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -409,11 +416,6 @@ def build_parser() -> argparse.ArgumentParser:
         "--delivery-dir",
         default="sdg/data/delivery/",
         help="Delivery directory for OSFT JSONL (default: sdg/data/delivery/)",
-    )
-    parser.add_argument(
-        "--config",
-        default="sdg/config/flow-evaluation.yaml",
-        help="Path to flow-evaluation.yaml (default: sdg/config/flow-evaluation.yaml)",
     )
     parser.add_argument(
         "--verbose", "-v",
@@ -434,10 +436,6 @@ def main(argv: list[str] | None = None) -> int:
         format="%(asctime)s %(levelname)-8s %(name)s: %(message)s",
     )
 
-    # Load eval flow config with env-var interpolation
-    logger.info("Loading evaluation config from %s", args.config)
-    config = _load_config(args.config)
-
     input_dir = Path(args.input_dir)
     output_dir = Path(args.output_dir)
     delivery_dir = Path(args.delivery_dir)
@@ -455,7 +453,7 @@ def main(argv: list[str] | None = None) -> int:
     logger.info("Found %d input files: %s", len(input_files), [f.name for f in input_files])
 
     # Step 1: Run evaluation flow on each input file
-    logger.info("=== Step 1: Evaluation Flow (Three-Stage Verification) ===")
+    logger.info("=== Step 1: Load Raw Generation Output (quality-filtered upstream) ===")
     all_filtered_rows: list[dict] = []
     input_count = 0
 
@@ -463,7 +461,7 @@ def main(argv: list[str] | None = None) -> int:
         row_count = sum(1 for line in input_file.open() if line.strip())
         input_count += row_count
 
-        filtered = _run_evaluation_flow(config, input_file, output_dir)
+        filtered = _run_evaluation_flow(input_file, output_dir)
         all_filtered_rows.extend(filtered)
 
     logger.info(

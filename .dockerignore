@@ -1,0 +1,6 @@
+sdg/data/
+sdg/__pycache__/
+sdg/**/__pycache__/
+sdg/pipelines/sdg_production_pipeline.yaml
+.git/
+.planning/

@@ -11,7 +11,12 @@ from pathlib import Path
 
 import pytest
 
-from sdg.lib.osft_validation import validate_osft_file, validate_osft_line
+from sdg.lib.osft_validation import (
+    validate_osft_file,
+    validate_osft_line,
+    validate_tool_output_against_schema,
+    validate_tool_trace_outputs,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -241,3 +246,109 @@ class TestFileValidation:
         is_valid, errors = validate_osft_file(str(filepath))
         assert is_valid is True
         assert errors == []
+
+
+# ---------------------------------------------------------------------------
+# Tool output schema validation (validate_tool_output_against_schema)
+# ---------------------------------------------------------------------------
+
+
+class TestToolOutputSchemaValidation:
+    """Catches the Phase 4 class of bug: syntactically valid JSON that does
+    not conform to the tool's actual documented response contract (e.g. a
+    Prism mock in dynamic mode fabricating wrong structure for a oneOf/
+    discriminator schema)."""
+
+    def test_valid_camara_location_response_passes(self) -> None:
+        # Exact shape Prism returns now that it's pinned to the static named
+        # example (post-fix) -- lastLocationTime + area are both required.
+        valid = json.dumps(
+            {
+                "lastLocationTime": "2023-10-17T13:18:23.682Z",
+                "area": {
+                    "areaType": "CIRCLE",
+                    "center": {"latitude": 45.754114, "longitude": 4.860374},
+                    "radius": 800,
+                },
+            }
+        )
+        errors = validate_tool_output_against_schema("camararetrieve_location", valid)
+        assert errors == []
+
+    def test_garbled_prism_dynamic_mode_response_fails(self) -> None:
+        """This is the literal shape Prism's --dynamic mode returned live in
+        Phase 4 for this exact tool -- missing 'center', garbage keys instead
+        of 'radius', and no top-level 'lastLocationTime'."""
+        garbled = json.dumps({"area": {"areaType": "CIRCLE", "et_0e_": 38992682, "tempor36": -95312975.4}})
+        errors = validate_tool_output_against_schema("camararetrieve_location", garbled)
+        assert errors != []
+        assert "camararetrieve_location" in errors[0]
+
+    def test_not_json_fails(self) -> None:
+        errors = validate_tool_output_against_schema(
+            "camararetrieve_location", "I am unable to retrieve the location due to an error."
+        )
+        assert errors != []
+        assert "not valid JSON" in errors[0]
+
+    def test_unmapped_tool_is_skipped_not_rejected(self) -> None:
+        errors = validate_tool_output_against_schema("some_unmapped_tool", "not even json {{{")
+        assert errors == []
+
+    def test_custom_schema_map_override(self, tmp_path: Path) -> None:
+        spec_path = tmp_path / "fake_spec.yaml"
+        spec_path.write_text(
+            "components:\n"
+            "  schemas:\n"
+            "    Thing:\n"
+            "      type: object\n"
+            "      required: [name]\n"
+            "      properties:\n"
+            "        name:\n"
+            "          type: string\n"
+        )
+        schema_map = {"fake_tool": (str(spec_path), "Thing")}
+        ok = validate_tool_output_against_schema(
+            "fake_tool", json.dumps({"name": "x"}), repo_root=Path("/"), schema_map=schema_map
+        )
+        assert ok == []
+        bad = validate_tool_output_against_schema(
+            "fake_tool", json.dumps({"wrong": "x"}), repo_root=Path("/"), schema_map=schema_map
+        )
+        assert bad != []
+
+
+class TestToolTraceOutputsValidation:
+    """validate_tool_trace_outputs aggregates per-entry errors across a trace."""
+
+    def test_all_valid_entries_no_errors(self) -> None:
+        trace = [
+            {
+                "name": "camararetrieve_location",
+                "input": {"device_phone_number": "+123456789"},
+                "output": json.dumps(
+                    {
+                        "lastLocationTime": "2023-10-17T13:18:23.682Z",
+                        "area": {
+                            "areaType": "CIRCLE",
+                            "center": {"latitude": 1.0, "longitude": 2.0},
+                            "radius": 1,
+                        },
+                    }
+                ),
+            },
+            {"name": "some_unmapped_tool", "input": {}, "output": "anything goes"},
+        ]
+        assert validate_tool_trace_outputs(trace) == []
+
+    def test_one_bad_entry_surfaces_its_error(self) -> None:
+        trace = [
+            {
+                "name": "camararetrieve_location",
+                "input": {},
+                "output": json.dumps({"areaType": "CIRCLE", "et_0e_": 1}),
+            },
+        ]
+        errors = validate_tool_trace_outputs(trace)
+        assert len(errors) == 1
+        assert "camararetrieve_location" in errors[0]

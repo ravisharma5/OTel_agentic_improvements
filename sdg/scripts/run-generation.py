@@ -48,11 +48,24 @@ except ImportError:
 # without sdg_hub installed
 try:
     from sdg_hub import FlowRegistry, Flow  # type: ignore[import-untyped]
+    from sdg_hub.core.utils.error_handling import EmptyDatasetError
+    from sdg.lib.streaming_llm_chat_block import patch_llm_chat_block_for_streaming
+
+    # Swap every LLMChatBlock in any loaded flow for a streaming-aware one --
+    # see streaming_llm_chat_block.py for why (AWS ELB idle-connection
+    # timeout on long non-streaming generations, confirmed live). Must run
+    # before FlowRegistry.discover_flows()/Flow.from_yaml() are called below.
+    patch_llm_chat_block_for_streaming()
 except ImportError:
     FlowRegistry = None  # type: ignore[assignment,misc]
     Flow = None  # type: ignore[assignment,misc]
 
+    class EmptyDatasetError(Exception):  # type: ignore[no-redef]
+        """Placeholder so _run_generation's except clause is importable
+        without sdg_hub installed; never actually raised in that case."""
+
 from sdg.scripts.materialize_seeds import materialize_tool_seeds
+from sdg.lib.trace_utils import DEFAULT_TRACE_COLUMN, row_passes_tool_coverage
 
 logger = logging.getLogger(__name__)
 
@@ -60,13 +73,44 @@ logger = logging.getLogger(__name__)
 # ─── Config Loading with Env-Var Interpolation ─────────────────────────────
 
 
+import re
+
+_ENV_VAR_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(:-([^}]*))?\}")
+
+
+def _expand_env_string(value: str) -> str:
+    """Expand ${VAR} and ${VAR:-default} placeholders in a string.
+
+    os.path.expandvars() does NOT support bash's ${VAR:-default} syntax --
+    it only matches plain ${VAR}/$VAR, so every config value using the
+    `:-default` form (every agent_config/model_config entry in
+    flow-training.yaml) was silently passed through as the literal
+    unexpanded string '${LANGFLOW_URL:-http://...}' regardless of whether
+    the env var was actually set. This implements the `:-default` form
+    directly instead of relying on os.path.expandvars.
+    """
+
+    def _replace(match: re.Match) -> str:
+        var_name = match.group(1)
+        has_default = match.group(2) is not None
+        default = match.group(3) if has_default else None
+        env_value = os.environ.get(var_name)
+        if env_value:
+            return env_value
+        if has_default:
+            return default or ""
+        return match.group(0)  # leave unexpanded if no default and unset
+
+    return _ENV_VAR_PATTERN.sub(_replace, value)
+
+
 def _expand_vars_recursive(obj):
-    """Recursively apply os.path.expandvars to all string values in a dict/list."""
+    """Recursively expand ${VAR}/${VAR:-default} in all string values in a dict/list."""
     if isinstance(obj, str):
-        expanded = os.path.expandvars(obj)
+        expanded = _expand_env_string(obj)
         if "${" in expanded:
             logger.warning(
-                "Unexpanded env var detected after expandvars: %r "
+                "Unexpanded env var detected after expansion: %r "
                 "(set the variable or it will be passed as a literal string)",
                 expanded,
             )
@@ -249,6 +293,50 @@ def _load_seed_dataframe(seeds_path: Path, tiers: list[str] | None = None):
     return records
 
 
+# Default max_concurrency for flow.generate() calls. Raised from the
+# fully-serialized value (1) used during the 2026-10-09 dry-run and the
+# first tool-coverage-gated KFP run -- that run's single_tool tier alone
+# took ~5 hours for one attempt plus coverage-gate retries, which multiplies
+# total runtime by up to MAX_ATTEMPTS (3) per scenario needing a resample.
+# Confirmed live during the 504 investigation that concurrency=3 was NOT
+# what caused those timeouts (streaming was -- see streaming_llm_chat_block.py
+# and the comment at the call site below); this value is being raised again
+# now that the actual timeout mechanism is fixed, with the expectation that
+# it should be safe. Watch the first few tiers/attempts after raising this
+# for new failure modes (vLLM queueing/backpressure, Langflow agent
+# concurrency limits) that a request-level timeout fix wouldn't address.
+GENERATION_MAX_CONCURRENCY = 4
+
+
+def _generate_once(flow, seeds: list[dict], runtime_params: dict, max_concurrency: int) -> list[dict]:
+    """Run flow.generate() once over the given seeds, returning output rows as dicts.
+
+    sdg_hub's Flow.generate() requires a pandas DataFrame or HF Dataset, not
+    a list of dicts -- this wraps that conversion plus the DataFrame/list
+    normalization of whatever generate() returns, so callers (including the
+    tool-coverage rejection-sampling retry loop in _run_generation) can
+    invoke a single attempt without repeating this boilerplate.
+    """
+    import pandas as pd
+    seed_df = pd.DataFrame(seeds)
+    output = flow.generate(
+        dataset=seed_df,
+        runtime_params=runtime_params,
+        max_concurrency=max_concurrency,
+    )
+
+    if hasattr(output, "iterrows"):
+        return [row.to_dict() for _, row in output.iterrows()]
+    elif isinstance(output, list):
+        return list(output)
+    else:
+        try:
+            return list(output)
+        except TypeError:
+            logger.error("Unexpected output type from flow: %s", type(output))
+            raise
+
+
 def _run_generation(
     config: dict,
     seeds: list[dict],
@@ -279,9 +367,14 @@ def _run_generation(
     flow_path = FlowRegistry.get_flow_path("MCP Server Distillation")
     flow = Flow.from_yaml(flow_path)
 
-    # Apply model and agent config from our override config
+    # Real Flow API (verified against installed sdg_hub==0.9.4, not assumed
+    # from docs): model/agent config are set on the flow itself, not passed
+    # to generate(). generate()'s only config kwarg is runtime_params.
     model_config = config.get("model_config", {})
     agent_config = config.get("agent_config", {})
+    flow.set_model_config(**model_config)
+    flow.set_agent_config(**agent_config)
+
     runtime_params = config.get("runtime_params", {})
 
     if dry_run:
@@ -291,46 +384,138 @@ def _run_generation(
             "sample_tools": {"num_samples": 1},
         }
         logger.info("Dry-run mode: limiting to ~10 examples (num_samples=1)")
-
-    # Build seed DataFrame (sdg_hub expects a pandas DataFrame or list of dicts)
-    if dry_run:
         seeds = seeds[:10]
+    else:
+        # sample_tools.num_samples controls how many tools from each row's
+        # tool_list get drawn into a single generated question -- this is
+        # what approximates curriculum progression (single_tool tier should
+        # only ever sample 1 tool, closed_loop up to 5), since the flow
+        # itself has no per-row/per-tier notion of this, only one static
+        # value per generate() call. Derive it from the smallest tool_list
+        # actually present in this tier's seeds so sampling never requests
+        # more tools than a scenario has (SamplerBlock has no min() guard).
+        tool_list_sizes = [len(s.get("tool_list", [])) for s in seeds if s.get("tool_list")]
+        if tool_list_sizes:
+            tier_sample_size = max(1, min(tool_list_sizes))
+            runtime_params = dict(runtime_params)
+            runtime_params["sample_tools"] = {"num_samples": tier_sample_size}
+            logger.info(
+                "Tier '%s': sample_tools.num_samples=%d (min tool_list size across %d seeds)",
+                tier_name, tier_sample_size, len(tool_list_sizes),
+            )
 
     # Run the flow
     logger.info(
         "Running generation flow for tier '%s' with %d seeds...",
         tier_name, len(seeds),
     )
-    output = flow.generate(
-        seed_dataset=seeds,
-        model_config=model_config,
-        agent_config=agent_config,
-        runtime_params=runtime_params,
-    )
+
+    # Tool-coverage rejection-sampling gate (04-LEARNINGS.md, 2026-10-09
+    # decision): the flow's own quality filters (question-quality,
+    # response-completeness) score narrative quality, not whether the agent
+    # actually exercised the tools a hand-curated scenario intended. The
+    # 2026-10-09 dry-run showed Gemma 4 defaulting to a "list alarms, open a
+    # ticket" pattern and skipping harder tools (TMF628 performance jobs,
+    # interface/BGP diagnostics) even when a scenario's tool_subset called
+    # for them -- a gap self-distillation's existing filters cannot catch,
+    # since they never compare the trace against intended_tools at all.
+    # For scenarios carrying an intended_tools passthrough column (every
+    # hand-curated seed, via materialize_seeds.py), resample up to
+    # MAX_COVERAGE_RETRIES extra times and only accept a trajectory that
+    # actually called every intended tool; after the last attempt, keep a
+    # record of anything that still didn't pass as a fallback signal for
+    # 04-LEARNINGS.md fix (2) (stronger external teacher for that scenario),
+    # not as training data. Organic seeds with no intended_tools (no ground
+    # truth to check) pass on the first attempt, same as before this gate
+    # existed -- see row_passes_tool_coverage()'s docstring.
+    MAX_COVERAGE_RETRIES = 2
+    MAX_ATTEMPTS = MAX_COVERAGE_RETRIES + 1
+
+    remaining = {
+        (s.get("scenario_name") or s.get("mcp_server_name") or f"<unnamed-{i}>"): s
+        for i, s in enumerate(seeds)
+    }
+    accepted: list[dict] = []
+    coverage_failed: list[dict] = []
+
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+        if not remaining:
+            break
+        current_seeds = list(remaining.values())
+        logger.info(
+            "Tier '%s': generation attempt %d/%d over %d seed(s)%s...",
+            tier_name, attempt, MAX_ATTEMPTS, len(current_seeds),
+            " (resampling tool-coverage failures)" if attempt > 1 else "",
+        )
+        # See GENERATION_MAX_CONCURRENCY's module-level comment: confirmed
+        # live during the original 504 investigation that concurrency=3 was
+        # NOT what caused those timeouts (streaming was), so raising this
+        # back up should be safe now that streaming is in place -- but it
+        # wasn't re-validated under the tool-coverage gate's extra retry
+        # load, so watch early attempts after any change here.
+        try:
+            rows = _generate_once(flow, current_seeds, runtime_params, GENERATION_MAX_CONCURRENCY)
+        except EmptyDatasetError:
+            # sdg_hub's own quality filters (question-quality, response-
+            # completeness) can legitimately zero out an entire attempt --
+            # confirmed live: a coverage-gate resample of a single seed
+            # (multiplied to 20 rows by multiply_tool_rows) had all 20
+            # fail filter_incomplete_responses, and flow.generate() raises
+            # EmptyDatasetError rather than returning an empty result.
+            # Within this retry loop that's just "this attempt produced
+            # nothing," not a fatal error -- treat it as zero rows so the
+            # loop resamples again (or records a coverage-gate failure on
+            # the last attempt) instead of crashing the whole tier.
+            logger.warning(
+                "Tier '%s' attempt %d/%d: all rows filtered out by sdg_hub's "
+                "own quality gates (EmptyDatasetError) -- treating as zero "
+                "survivors for this attempt.",
+                tier_name, attempt, MAX_ATTEMPTS,
+            )
+            rows = []
+
+        for row in rows:
+            scenario = row.get("scenario_name") or row.get("mcp_server_name")
+            if row_passes_tool_coverage(row, DEFAULT_TRACE_COLUMN):
+                accepted.append(row)
+                if scenario:
+                    remaining.pop(scenario, None)
+            elif attempt == MAX_ATTEMPTS:
+                coverage_failed.append(row)
+
+        if remaining and attempt < MAX_ATTEMPTS:
+            logger.info(
+                "Tier '%s': %d scenario(s) failed the tool-coverage gate, resampling...",
+                tier_name, len(remaining),
+            )
+
+    if remaining:
+        logger.warning(
+            "Tier '%s': %d scenario(s) never produced a trajectory covering all "
+            "intended_tools after %d attempts: %s -- excluded from training output, "
+            "kept in %s_coverage_failed.jsonl. See 04-LEARNINGS.md fix (2) "
+            "(stronger external teacher) as the documented fallback.",
+            tier_name, len(remaining), MAX_ATTEMPTS, sorted(remaining.keys()), tier_name,
+        )
+
+    results = accepted
 
     # Write output
     output_dir.mkdir(parents=True, exist_ok=True)
     output_file = output_dir / f"{tier_name}_raw.jsonl"
-    results = []
-
-    if hasattr(output, "iterrows"):
-        # pandas DataFrame
-        for _, row in output.iterrows():
-            record = row.to_dict()
-            results.append(record)
-    elif isinstance(output, list):
-        results = output
-    else:
-        # Try converting to list of dicts
-        try:
-            results = list(output)
-        except TypeError:
-            logger.error("Unexpected output type from flow: %s", type(output))
-            raise
-
     with open(output_file, "w") as f:
         for record in results:
             f.write(json.dumps(record, default=str) + "\n")
+
+    if coverage_failed:
+        failed_file = output_dir / f"{tier_name}_coverage_failed.jsonl"
+        with open(failed_file, "w") as f:
+            for record in coverage_failed:
+                f.write(json.dumps(record, default=str) + "\n")
+        logger.info(
+            "Tier '%s': %d coverage-gate-failed example(s) written to %s (not training data)",
+            tier_name, len(coverage_failed), failed_file,
+        )
 
     logger.info(
         "Tier '%s': %d examples written to %s",

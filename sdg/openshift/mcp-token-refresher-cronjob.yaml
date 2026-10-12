@@ -1,0 +1,85 @@
+# mcp-token-refresher CronJob -- keeps the Langflow `otel25-mcp-gateway` MCP
+# server registration's Authorization header fresh.
+#
+# The sdg-pipeline Keycloak client issues JWTs with a 300s TTL; Langflow
+# stores that JWT as a static header, so it goes stale within 5 minutes.
+# This CronJob re-mints a token and PATCHes the registration every 2 minutes
+# (sdg/scripts/refresh-mcp-token.py).
+#
+# Prerequisites (not applied by this manifest):
+#   1. The script ConfigMap -- generate/refresh it from the source file after
+#      any edit to sdg/scripts/refresh-mcp-token.py:
+#        oc create configmap mcp-token-refresher-script \
+#          --from-file=sdg/scripts/refresh-mcp-token.py \
+#          -n otel25-sdg --dry-run=client -o yaml | oc apply -f -
+#   2. A local copy of the sdg-pipeline Keycloak client secret (it lives on a
+#      different cluster -- see sdg/openshift/README or the handoff notes):
+#        CLIENT_SECRET=$(oc --context <sandbox1330> get secret keycloak-client-secret-sdg-pipeline \
+#          -n otel25-gateway -o jsonpath='{.data.CLIENT_SECRET}' | base64 -d)
+#        oc --context <sandbox2667> create secret generic keycloak-client-secret-sdg-pipeline \
+#          -n otel25-sdg --from-literal=CLIENT_SECRET="$CLIENT_SECRET"
+#   3. The existing `langflow-admin-credentials` Secret in otel25-sdg (created
+#      when Langflow was deployed; keys: username, password).
+#
+# Apply this file with: oc apply -f sdg/openshift/mcp-token-refresher-cronjob.yaml
+
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: mcp-token-refresher
+  namespace: otel25-sdg
+  labels:
+    app: mcp-token-refresher
+    layer: sdg
+spec:
+  schedule: "*/2 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 60
+      backoffLimit: 1
+      template:
+        metadata:
+          labels:
+            app: mcp-token-refresher
+            layer: sdg
+        spec:
+          restartPolicy: Never
+          containers:
+          - name: refresh-mcp-token
+            image: python:3.12-slim
+            command: ["python3", "/scripts/refresh-mcp-token.py"]
+            env:
+            - name: CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: keycloak-client-secret-sdg-pipeline
+                  key: CLIENT_SECRET
+            - name: LANGFLOW_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: langflow-admin-credentials
+                  key: username
+            - name: LANGFLOW_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: langflow-admin-credentials
+                  key: password
+            resources:
+              requests:
+                cpu: 50m
+                memory: 64Mi
+              limits:
+                cpu: 200m
+                memory: 128Mi
+            volumeMounts:
+            - name: script
+              mountPath: /scripts
+              readOnly: true
+          volumes:
+          - name: script
+            configMap:
+              name: mcp-token-refresher-script
+              defaultMode: 0555

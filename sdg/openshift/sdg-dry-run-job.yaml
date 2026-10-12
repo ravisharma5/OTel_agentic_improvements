@@ -1,0 +1,92 @@
+# sdg-dry-run Job -- runs the SDG generation pipeline as a cluster-native
+# workload instead of via a long-lived `oc exec` session (which cannot
+# survive the full runtime of a 20+ block, multi-LLM-call flow execution --
+# proven live: an `oc exec`-attached run was cut off mid-explore_server after
+# only 3/7 rows of a single tier).
+#
+# Uses its own dedicated PVC (sdg-generation-job-storage, RWO) rather than
+# the sdg-pipeline workbench's PVC, since RWO volumes can't be mounted by two
+# pods at once -- this lets the Job run independently of whether the
+# workbench notebook is also open and in use.
+#
+# Prerequisites (not applied by this manifest):
+#   1. The sdg-generation-job-storage PVC must exist and be seeded with the
+#      current sdg/ directory (see session notes / README for the seeding
+#      steps: a short-lived helper pod + `oc rsync`).
+#   2. keycloak-client-secret-sdg-pipeline, maas-rhdp-api-key, and
+#      langflow-api-key-sdg-pipeline Secrets must already exist in
+#      otel25-sdg (same ones the mcp-token-refresher CronJob and workbench
+#      environment variables use).
+#
+# Apply with: oc apply -f sdg/openshift/sdg-dry-run-job.yaml
+# Watch with: oc logs -f job/sdg-dry-run -n otel25-sdg
+# Re-run: oc delete job sdg-dry-run -n otel25-sdg (Jobs are not re-triggerable in place)
+
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: sdg-dry-run
+  namespace: otel25-sdg
+  labels:
+    app: sdg-dry-run
+spec:
+  backoffLimit: 1  # One retry buffer for a genuinely transient 504 (see run-generation.py's max_concurrency comment) -- still low, a repeated failure needs triage, not endless blind retries.
+  activeDeadlineSeconds: 10800  # 3h ceiling; 22-block flow x multiple LLM/agent calls per seed is slow, observed ~80-90s per row for a single block alone.
+  template:
+    metadata:
+      labels:
+        app: sdg-dry-run
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: sdg-dry-run
+        image: python:3.12-slim
+        workingDir: /opt/app-root/src
+        command: ["sh", "-c"]
+        args:
+          - |
+            set -e
+            pip install --quiet "sdg-hub==0.9.4" jsonschema pyyaml pandas requests
+            python3 -m sdg.scripts.run-generation --dry-run --output-dir sdg/data/raw/dry-run
+        env:
+        - name: HOME
+          value: "/tmp"
+        - name: GATEWAY_URL
+          value: "https://mcp.apps.cluster-wfhjs.wfhjs.sandbox1330.opentlc.com/mcp"
+        - name: KEYCLOAK_URL
+          value: "https://mcp-keycloak-otel25-gateway.apps.cluster-wfhjs.wfhjs.sandbox1330.opentlc.com"
+        - name: CLIENT_ID
+          value: "sdg-pipeline"
+        - name: VLLM_API_BASE
+          value: "https://ai-inference.apps.cluster-qbq4v.qbq4v.sandbox2667.opentlc.com/models/redhataigemma-4-31b-it/v1"
+        - name: LANGFLOW_URL
+          value: "http://langflow-service-backend.otel25-sdg.svc.cluster.local:7860/api/v1/run/90d9df0e-6bdd-465b-8064-385998b1a437"
+        - name: CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: keycloak-client-secret-sdg-pipeline
+              key: CLIENT_SECRET
+        - name: VLLM_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: maas-rhdp-api-key
+              key: api-key
+        - name: LANGFLOW_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: langflow-api-key-sdg-pipeline
+              key: LANGFLOW_API_KEY
+        resources:
+          requests:
+            cpu: 250m
+            memory: 512Mi
+          limits:
+            cpu: 1
+            memory: 1Gi
+        volumeMounts:
+        - name: storage
+          mountPath: /opt/app-root/src
+      volumes:
+      - name: storage
+        persistentVolumeClaim:
+          claimName: sdg-generation-job-storage

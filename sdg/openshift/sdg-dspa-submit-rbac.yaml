@@ -1,0 +1,31 @@
+# Grants the otel25-sdg `default` ServiceAccount permission to call the
+# sdg-dspa DataSciencePipelinesApplication's API server via its kube-rbac-proxy
+# sidecar (port 8443) -- this is what lets a plain pod in this namespace
+# (no special identity) submit/manage KFP pipeline runs with
+# kfp.Client(host="https://ds-pipeline-sdg-dspa.otel25-sdg.svc.cluster.local:8443",
+# existing_token=<pod's own SA token>, verify_ssl=False).
+#
+# The DataSciencePipelinesApplication operator already creates the Role
+# (ds-pipeline-sdg-dspa-user-access) with exactly the right rule -- it ships
+# with no RoleBinding, since which identities should get API access is a
+# deployment-specific decision, not the operator's to make. This is that
+# RoleBinding for the sdg production pipeline's use case.
+#
+# See .planning/phases/04-sdg-pipeline-and-dataset-production/04-LEARNINGS.md
+# (2026-10-09 entry) for how this was discovered -- the external oauth-proxied
+# Route is impractical for scripted kfp.Client() calls; this in-cluster
+# kube-rbac-proxy + ServiceAccount-token path is the supported alternative.
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: sdg-pipeline-submit-dspa-access
+  namespace: otel25-sdg
+subjects:
+- kind: ServiceAccount
+  name: default
+  namespace: otel25-sdg
+roleRef:
+  kind: Role
+  name: ds-pipeline-user-access-sdg-dspa
+  apiGroup: rbac.authorization.k8s.io

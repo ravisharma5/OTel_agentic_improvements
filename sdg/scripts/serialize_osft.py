@@ -22,9 +22,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import sys
 import uuid
 from pathlib import Path
+
+from sdg.lib.osft_validation import validate_tool_trace_outputs
+
+logger = logging.getLogger(__name__)
 
 
 def _build_system_message(tools: list[dict]) -> dict:
@@ -38,11 +43,49 @@ def _build_system_message(tools: list[dict]) -> dict:
     return {"role": "system", "content": content}
 
 
+def _unwrapped_tool_trace(tool_trace: list[dict]) -> list[dict]:
+    """Return tool_trace with each entry's output pre-unwrapped for validation.
+
+    validate_tool_trace_outputs expects the real backend payload, not the raw
+    agent-framework wrapper -- apply the same extraction serialization uses
+    so validation checks what will actually land in the training data.
+    """
+    return [
+        {**entry, "output": _extract_tool_output_content(entry.get("output", {}))}
+        for entry in tool_trace
+    ]
+
+
 def _make_call_id(tool_entry: dict) -> str:
     """Return original tool_call_id if present, else generate a synthetic one."""
     if "id" in tool_entry:
         return tool_entry["id"]
     return f"call_{uuid.uuid4().hex[:12]}"
+
+
+def _extract_tool_output_content(output: object) -> str:
+    """Extract the real tool-response payload from a trace entry's output.
+
+    sdg_hub's normalize_tool_trace() (Legacy Langflow format) passes the raw
+    LangChain ToolMessage dict through unchanged: {content, additional_kwargs,
+    response_metadata, artifact, tool_call_id, status}. Only `content` (or,
+    equivalently, `artifact.structuredContent.result`) is the actual backend
+    response; the rest is transport bookkeeping with no training signal and
+    must not end up in the OSFT tool message's content.
+    """
+    if isinstance(output, str):
+        return output
+    if isinstance(output, dict):
+        if "content" in output:
+            content = output["content"]
+            return content if isinstance(content, str) else json.dumps(content)
+        artifact = output.get("artifact")
+        if isinstance(artifact, dict):
+            structured = artifact.get("structuredContent")
+            if isinstance(structured, dict) and "result" in structured:
+                result = structured["result"]
+                return result if isinstance(result, str) else json.dumps(result)
+    return json.dumps(output)
 
 
 def _serialize_turn(turn: dict) -> tuple[list[dict], list[dict]]:
@@ -95,7 +138,7 @@ def _serialize_turn(turn: dict) -> tuple[list[dict], list[dict]]:
             {
                 "role": "tool",
                 "tool_call_id": call_ids[i],
-                "content": json.dumps(entry.get("output", {})),
+                "content": _extract_tool_output_content(entry.get("output", {})),
             }
         )
 
@@ -200,17 +243,43 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.format in ("single-turn", "both"):
         out_path = output_dir / "single_turn.jsonl"
+        written, rejected = 0, 0
         with out_path.open("w") as f:
             for trace in traces:
+                unwrapped = _unwrapped_tool_trace(trace.get("tool_trace") or [])
+                schema_errors = validate_tool_trace_outputs(unwrapped)
+                if schema_errors:
+                    rejected += 1
+                    logger.warning(
+                        "Rejecting trace (tool output fails schema validation): %s",
+                        "; ".join(schema_errors),
+                    )
+                    continue
                 result = serialize_single_turn(trace)
                 f.write(json.dumps(result) + "\n")
+                written += 1
+        logger.info("single-turn: %d written, %d rejected (schema validation)", written, rejected)
 
     if args.format in ("multi-turn", "both"):
         out_path = output_dir / "multi_turn.jsonl"
+        written, rejected = 0, 0
         with out_path.open("w") as f:
             for trace in traces:
+                schema_errors = []
+                for turn in trace.get("turns", []):
+                    unwrapped = _unwrapped_tool_trace(turn.get("tool_trace") or [])
+                    schema_errors.extend(validate_tool_trace_outputs(unwrapped))
+                if schema_errors:
+                    rejected += 1
+                    logger.warning(
+                        "Rejecting trace (tool output fails schema validation): %s",
+                        "; ".join(schema_errors),
+                    )
+                    continue
                 result = serialize_multi_turn(trace)
                 f.write(json.dumps(result) + "\n")
+                written += 1
+        logger.info("multi-turn: %d written, %d rejected (schema validation)", written, rejected)
 
 
 if __name__ == "__main__":

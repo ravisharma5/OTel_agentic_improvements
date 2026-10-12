@@ -299,6 +299,65 @@ class TestEdgeCases:
         assert messages[-1]["role"] == "assistant"
         assert messages[-1]["content"] == ""
 
+    def test_langchain_wrapped_output_unwraps_to_content(self) -> None:
+        """Legacy-Langflow traces carry the full LangChain ToolMessage dict in
+        'output' (content, additional_kwargs, response_metadata, artifact,
+        tool_call_id, status). Only 'content' -- the real backend response --
+        should land in the OSFT tool message, not the transport wrapper."""
+        real_payload = '{"areaType":"CIRCLE","center":{"latitude":45.75,"longitude":4.86},"radius":800}'
+        trace = {
+            "question": "Where is the device with phone number +123456789?",
+            "tool_trace": [
+                {
+                    "name": "camararetrieve_location",
+                    "input": {"device_phone_number": "+123456789"},
+                    "output": {
+                        "content": real_payload,
+                        "additional_kwargs": {},
+                        "response_metadata": {},
+                        "type": "tool",
+                        "name": "camararetrieve_location",
+                        "id": "ffa2eabc-4213-4dc2-bc66-712a9f558c7a",
+                        "tool_call_id": "chatcmpl-tool-9ad0190b1a2abdf5",
+                        "artifact": {
+                            "structuredContent": {"result": real_payload},
+                            "isError": False,
+                        },
+                        "status": "success",
+                    },
+                },
+            ],
+            "answer": "The device is near Lyon, France.",
+            "tools": [],
+        }
+        result = serialize_single_turn(trace)
+        tool_messages = [m for m in result["messages"] if m["role"] == "tool"]
+        assert len(tool_messages) == 1
+        assert tool_messages[0]["content"] == real_payload
+        # Transport bookkeeping must not leak into the training content.
+        assert "additional_kwargs" not in tool_messages[0]["content"]
+        assert "tool_call_id" not in json.loads(tool_messages[0]["content"])
+
+    def test_artifact_structured_content_fallback(self) -> None:
+        """When 'content' is absent, fall back to artifact.structuredContent.result."""
+        trace = {
+            "question": "q",
+            "tool_trace": [
+                {
+                    "name": "fn",
+                    "input": {},
+                    "output": {
+                        "artifact": {"structuredContent": {"result": {"ok": True}}},
+                    },
+                },
+            ],
+            "answer": "a",
+            "tools": [],
+        }
+        result = serialize_single_turn(trace)
+        tool_messages = [m for m in result["messages"] if m["role"] == "tool"]
+        assert json.loads(tool_messages[0]["content"]) == {"ok": True}
+
 
 class TestCLIArguments:
     """CLI mode argument parsing."""
@@ -323,3 +382,57 @@ class TestCLIArguments:
                 ["--input", "t.jsonl", "--output-dir", "o", "--format", fmt]
             )
             assert args.format == fmt
+
+
+class TestMainRejectsSchemaInvalidTraces:
+    """main() rejects traces whose tool output fails schema validation
+    against the tool's documented OpenAPI response, instead of silently
+    writing bad data into the OSFT output (the Phase 4 Prism regression)."""
+
+    def test_bad_trace_excluded_good_trace_written(self, tmp_path) -> None:
+        from sdg.scripts.serialize_osft import main
+
+        good = {
+            "question": "Where is +123456789?",
+            "tool_trace": [
+                {
+                    "name": "camararetrieve_location",
+                    "input": {"device_phone_number": "+123456789"},
+                    "output": json.dumps(
+                        {
+                            "lastLocationTime": "2023-10-17T13:18:23.682Z",
+                            "area": {
+                                "areaType": "CIRCLE",
+                                "center": {"latitude": 1.0, "longitude": 2.0},
+                                "radius": 1,
+                            },
+                        }
+                    ),
+                },
+            ],
+            "answer": "Near the origin.",
+            "tools": [],
+        }
+        bad = {
+            "question": "Where is +199999999?",
+            "tool_trace": [
+                {
+                    "name": "camararetrieve_location",
+                    "input": {"device_phone_number": "+199999999"},
+                    "output": json.dumps({"area": {"areaType": "CIRCLE", "et_0e_": 1}}),
+                },
+            ],
+            "answer": "Somewhere.",
+            "tools": [],
+        }
+        input_path = tmp_path / "traces.jsonl"
+        input_path.write_text(json.dumps(good) + "\n" + json.dumps(bad) + "\n")
+        output_dir = tmp_path / "out"
+
+        main(["--input", str(input_path), "--output-dir", str(output_dir), "--format", "single-turn"])
+
+        lines = (output_dir / "single_turn.jsonl").read_text().strip().splitlines()
+        assert len(lines) == 1
+        written = json.loads(lines[0])
+        user_msg = next(m for m in written["messages"] if m["role"] == "user")
+        assert user_msg["content"] == "Where is +123456789?"

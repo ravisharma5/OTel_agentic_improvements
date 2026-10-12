@@ -217,9 +217,28 @@ def materialize_tool_seeds(
 ) -> int:
     """Cross-reference MCP tools with curriculum tiers and produce seed JSONL.
 
-    For each curriculum tier in seed-scenarios.yaml, matches tool_subsets
-    against the fetched tool list by name. For each match, produces a seed
-    record with structured metadata that sdg_hub's training flow expects.
+    Each seed-scenarios.yaml scenario becomes one row matching sdg_hub's real
+    "MCP Server Distillation" flow input contract -- required_columns=
+    ['tool_list', 'mcp_server_name', 'mcp_server_description'] (verified
+    against the installed sdg_hub==0.9.4 package's
+    Flow.get_dataset_requirements(), not the flow's own docs, which don't
+    cover this). tool_list is the scenario's tool_subset resolved to full
+    tool objects -- this is what actually scopes which tools the flow's
+    SamplerBlock can draw into a generated question, which is why keeping
+    each scenario's hand-curated tool_subset (not the full 80-tool gateway
+    inventory) is what keeps generation grounded to a coherent workflow
+    instead of arbitrary cross-domain tool combinations.
+
+    mcp_server_description carries the scenario's own description as
+    grounding context for the flow's exploration/question-generation
+    prompts -- the flow does NOT use it as literal question text, it
+    generates its own questions from tool_list + this description.
+
+    Extra passthrough columns (tier, complexity, scenario_name,
+    intended_tools) aren't part of sdg_hub's required/optional schema, but
+    survive RowMultiplierBlock/SamplerBlock (they only touch the columns
+    they're configured to read) and are what tool_coverage_report.py uses
+    to compare intended vs. actually-called tools per scenario later.
 
     Args:
         tools: List of tool dicts from fetch_tools() (name, description, inputSchema).
@@ -228,6 +247,13 @@ def materialize_tool_seeds(
 
     Returns:
         Number of seed records written.
+
+    Raises:
+        ValueError: If any scenario references a tool_subset name not found
+            in the live gateway's tools/list response -- a silent mismatch
+            here (e.g. a stale naming-convention assumption) was the actual
+            root cause of a 100% seed-resolution failure found in practice;
+            fail loudly instead of emitting a placeholder record.
     """
     if yaml is None:
         raise ImportError("PyYAML is required: pip install pyyaml")
@@ -255,62 +281,50 @@ def materialize_tool_seeds(
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     records_written = 0
+    unresolved: list[str] = []
 
     with open(output_path, "w") as out:
         for tier_name, tier_config in tiers.items():
             complexity = tier_config.get("complexity", 0)
-            tier_description = tier_config.get("description", "")
             scenarios = tier_config.get("scenarios", [])
 
             for scenario in scenarios:
+                scenario_name = scenario.get("name") or f"{tier_name}_unnamed_{records_written}"
                 tool_subset = scenario.get("tool_subset", [])
                 scenario_desc = scenario.get("description", "")
-                parameters = scenario.get("parameters", {})
-                follow_up_prompts = scenario.get("follow_up_prompts", [])
 
-                # Resolve tool metadata for each tool in the subset
+                # Resolve tool metadata for each tool in the subset against
+                # the live gateway -- fail loudly on any miss (see docstring).
                 resolved_tools = []
                 for tool_name in tool_subset:
-                    if tool_name in tool_map:
-                        resolved_tools.append(tool_map[tool_name])
-                    else:
-                        # Tool not found in gateway -- still include with
-                        # name-only record for completeness
-                        resolved_tools.append({
-                            "name": tool_name,
-                            "description": f"[NOT FOUND IN GATEWAY] {tool_name}",
-                            "inputSchema": {},
-                        })
+                    if tool_name not in tool_map:
+                        unresolved.append(f"{scenario_name}: {tool_name}")
+                        continue
+                    resolved_tools.append(tool_map[tool_name])
 
-                # Produce seed record
                 record = {
-                    "tool_name": ", ".join(tool_subset),
-                    "tool_description": "; ".join(
-                        t["description"] for t in resolved_tools
+                    "mcp_server_name": scenario_name,
+                    "mcp_server_description": (
+                        f"Telecom NOC fault-prediction tool collection for: {scenario_desc}"
                     ),
-                    "input_schema": json.dumps(
-                        [t["inputSchema"] for t in resolved_tools]
-                    ),
+                    "tool_list": resolved_tools,
+                    # Passthrough tracking columns -- not part of sdg_hub's
+                    # schema, consumed by tool_coverage_report.py.
                     "tier": tier_name,
                     "complexity": complexity,
-                    "scenario_description": scenario_desc,
-                    "tool_count": len(tool_subset),
-                    "resolved_tool_count": sum(
-                        1 for t in resolved_tools
-                        if not t["description"].startswith("[NOT FOUND")
-                    ),
+                    "scenario_name": scenario_name,
+                    "intended_tools": tool_subset,
                 }
-
-                # Include follow-up prompts for multi_turn tier
-                if follow_up_prompts:
-                    record["follow_up_prompts"] = json.dumps(follow_up_prompts)
-
-                # Include parameters for parameterized scenarios
-                if parameters:
-                    record["parameters"] = json.dumps(parameters)
 
                 out.write(json.dumps(record) + "\n")
                 records_written += 1
+
+    if unresolved:
+        raise ValueError(
+            "The following scenario tool_subset entries were not found in the "
+            "live gateway's tools/list response (naming mismatch?): "
+            + "; ".join(unresolved)
+        )
 
     return records_written
 

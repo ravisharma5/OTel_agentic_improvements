@@ -40,6 +40,7 @@ RHOAI Cluster                      Existing Cluster
 pip install "sdg-hub==0.9.4"
 pip install "training-hub==0.10.0"    # OSFT format reference/validation only
 pip install "vllm==0.31.0"            # Served separately, not in pipeline env
+pip install "jsonschema" "pyyaml"     # osft_validation.py's tool-output schema gate
 ```
 
 ### Infrastructure

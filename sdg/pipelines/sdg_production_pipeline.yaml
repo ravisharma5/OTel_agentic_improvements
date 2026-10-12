@@ -1,0 +1,727 @@
+# PIPELINE DEFINITION
+# Name: sdg-production-pipeline
+# Description: Generate telecom tool-calling training examples per tier (tool-coverage gated, one artifact per tier), report coverage, and run three-stage evaluation + OSFT delivery. See .planning/phases/04-sdg-pipeline-and-dataset-production/04-LEARNINGS.md for the rejection-sampling and per-tier-split design rationale.
+# Inputs:
+#    client_id: str [Default: 'sdg-pipeline']
+#    gateway_url: str [Default: 'https://mcp.apps.cluster-wfhjs.wfhjs.sandbox1330.opentlc.com/mcp']
+#    keycloak_url: str [Default: 'https://mcp-keycloak-otel25-gateway.apps.cluster-wfhjs.wfhjs.sandbox1330.opentlc.com']
+components:
+  comp-coverage-report:
+    executorLabel: exec-coverage-report
+    inputDefinitions:
+      artifacts:
+        raw_closed_loop:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+        raw_multi_turn:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+        raw_parallel:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+        raw_sequential:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+        raw_single_tool:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+    outputDefinitions:
+      artifacts:
+        report:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+  comp-evaluate-and-deliver:
+    executorLabel: exec-evaluate-and-deliver
+    inputDefinitions:
+      artifacts:
+        raw_closed_loop:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+        raw_multi_turn:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+        raw_parallel:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+        raw_sequential:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+        raw_single_tool:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+    outputDefinitions:
+      artifacts:
+        delivery_output:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+        filtered_output:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+  comp-generate-tier:
+    executorLabel: exec-generate-tier
+    inputDefinitions:
+      parameters:
+        client_id:
+          parameterType: STRING
+        gateway_url:
+          parameterType: STRING
+        keycloak_url:
+          parameterType: STRING
+        tier:
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        raw_output:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+  comp-generate-tier-2:
+    executorLabel: exec-generate-tier-2
+    inputDefinitions:
+      parameters:
+        client_id:
+          parameterType: STRING
+        gateway_url:
+          parameterType: STRING
+        keycloak_url:
+          parameterType: STRING
+        tier:
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        raw_output:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+  comp-generate-tier-3:
+    executorLabel: exec-generate-tier-3
+    inputDefinitions:
+      parameters:
+        client_id:
+          parameterType: STRING
+        gateway_url:
+          parameterType: STRING
+        keycloak_url:
+          parameterType: STRING
+        tier:
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        raw_output:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+  comp-generate-tier-4:
+    executorLabel: exec-generate-tier-4
+    inputDefinitions:
+      parameters:
+        client_id:
+          parameterType: STRING
+        gateway_url:
+          parameterType: STRING
+        keycloak_url:
+          parameterType: STRING
+        tier:
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        raw_output:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+  comp-generate-tier-5:
+    executorLabel: exec-generate-tier-5
+    inputDefinitions:
+      parameters:
+        client_id:
+          parameterType: STRING
+        gateway_url:
+          parameterType: STRING
+        keycloak_url:
+          parameterType: STRING
+        tier:
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        raw_output:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+deploymentSpec:
+  executors:
+    exec-coverage-report:
+      container:
+        args:
+        - set -e; for d in "$1" "$2" "$3" "$4" "$5"; do cat "$d"/*_raw.jsonl 2>/dev/null
+          || true; done > /tmp/all_tiers_raw.jsonl; python3 -m sdg.scripts.tool_coverage_report
+          --input /tmp/all_tiers_raw.jsonl --seed-scenarios sdg/config/seed-scenarios.yaml
+          --output-dir "$6"
+        - coverage_report
+        - '{{$.inputs.artifacts[''raw_single_tool''].path}}'
+        - '{{$.inputs.artifacts[''raw_parallel''].path}}'
+        - '{{$.inputs.artifacts[''raw_sequential''].path}}'
+        - '{{$.inputs.artifacts[''raw_multi_turn''].path}}'
+        - '{{$.inputs.artifacts[''raw_closed_loop''].path}}'
+        - '{{$.outputs.artifacts[''report''].path}}'
+        command:
+        - sh
+        - -c
+        image: image-registry.openshift-image-registry.svc:5000/otel25-sdg/sdg-pipeline:latest
+    exec-evaluate-and-deliver:
+      container:
+        args:
+        - set -e; mkdir -p /tmp/merged_raw; for d in "$1" "$2" "$3" "$4" "$5"; do
+          cp "$d"/*_raw.jsonl /tmp/merged_raw/ 2>/dev/null || true; done; python3
+          -m sdg.scripts.run-evaluation --input-dir /tmp/merged_raw --output-dir "$6"
+          --delivery-dir "$7"
+        - evaluate_and_deliver
+        - '{{$.inputs.artifacts[''raw_single_tool''].path}}'
+        - '{{$.inputs.artifacts[''raw_parallel''].path}}'
+        - '{{$.inputs.artifacts[''raw_sequential''].path}}'
+        - '{{$.inputs.artifacts[''raw_multi_turn''].path}}'
+        - '{{$.inputs.artifacts[''raw_closed_loop''].path}}'
+        - '{{$.outputs.artifacts[''filtered_output''].path}}'
+        - '{{$.outputs.artifacts[''delivery_output''].path}}'
+        command:
+        - sh
+        - -c
+        env:
+        - name: VLLM_API_BASE
+          value: https://ai-inference.apps.cluster-qbq4v.qbq4v.sandbox2667.opentlc.com/models/redhataigemma-4-31b-it/v1
+        - name: LANGFLOW_URL
+          value: http://langflow-service-backend.otel25-sdg.svc.cluster.local:7860/api/v1/run/90d9df0e-6bdd-465b-8064-385998b1a437
+        image: image-registry.openshift-image-registry.svc:5000/otel25-sdg/sdg-pipeline:latest
+        resources:
+          cpuLimit: 1.0
+          cpuRequest: 0.25
+          memoryLimit: 1.073741824
+          memoryRequest: 0.536870912
+          resourceCpuLimit: '1'
+          resourceCpuRequest: 250m
+          resourceMemoryLimit: 1Gi
+          resourceMemoryRequest: 512Mi
+    exec-generate-tier:
+      container:
+        args:
+        - --tiers
+        - '{{$.inputs.parameters[''tier'']}}'
+        - --output-dir
+        - '{{$.outputs.artifacts[''raw_output''].path}}'
+        - --gateway-url
+        - '{{$.inputs.parameters[''gateway_url'']}}'
+        - --keycloak-url
+        - '{{$.inputs.parameters[''keycloak_url'']}}'
+        - --client-id
+        - '{{$.inputs.parameters[''client_id'']}}'
+        command:
+        - python3
+        - -m
+        - sdg.scripts.run-generation
+        env:
+        - name: VLLM_API_BASE
+          value: https://ai-inference.apps.cluster-qbq4v.qbq4v.sandbox2667.opentlc.com/models/redhataigemma-4-31b-it/v1
+        - name: LANGFLOW_URL
+          value: http://langflow-service-backend.otel25-sdg.svc.cluster.local:7860/api/v1/run/90d9df0e-6bdd-465b-8064-385998b1a437
+        image: image-registry.openshift-image-registry.svc:5000/otel25-sdg/sdg-pipeline:latest
+        resources:
+          cpuLimit: 1.0
+          cpuRequest: 0.25
+          memoryLimit: 1.073741824
+          memoryRequest: 0.536870912
+          resourceCpuLimit: '1'
+          resourceCpuRequest: 250m
+          resourceMemoryLimit: 1Gi
+          resourceMemoryRequest: 512Mi
+    exec-generate-tier-2:
+      container:
+        args:
+        - --tiers
+        - '{{$.inputs.parameters[''tier'']}}'
+        - --output-dir
+        - '{{$.outputs.artifacts[''raw_output''].path}}'
+        - --gateway-url
+        - '{{$.inputs.parameters[''gateway_url'']}}'
+        - --keycloak-url
+        - '{{$.inputs.parameters[''keycloak_url'']}}'
+        - --client-id
+        - '{{$.inputs.parameters[''client_id'']}}'
+        command:
+        - python3
+        - -m
+        - sdg.scripts.run-generation
+        env:
+        - name: VLLM_API_BASE
+          value: https://ai-inference.apps.cluster-qbq4v.qbq4v.sandbox2667.opentlc.com/models/redhataigemma-4-31b-it/v1
+        - name: LANGFLOW_URL
+          value: http://langflow-service-backend.otel25-sdg.svc.cluster.local:7860/api/v1/run/90d9df0e-6bdd-465b-8064-385998b1a437
+        image: image-registry.openshift-image-registry.svc:5000/otel25-sdg/sdg-pipeline:latest
+        resources:
+          cpuLimit: 1.0
+          cpuRequest: 0.25
+          memoryLimit: 1.073741824
+          memoryRequest: 0.536870912
+          resourceCpuLimit: '1'
+          resourceCpuRequest: 250m
+          resourceMemoryLimit: 1Gi
+          resourceMemoryRequest: 512Mi
+    exec-generate-tier-3:
+      container:
+        args:
+        - --tiers
+        - '{{$.inputs.parameters[''tier'']}}'
+        - --output-dir
+        - '{{$.outputs.artifacts[''raw_output''].path}}'
+        - --gateway-url
+        - '{{$.inputs.parameters[''gateway_url'']}}'
+        - --keycloak-url
+        - '{{$.inputs.parameters[''keycloak_url'']}}'
+        - --client-id
+        - '{{$.inputs.parameters[''client_id'']}}'
+        command:
+        - python3
+        - -m
+        - sdg.scripts.run-generation
+        env:
+        - name: VLLM_API_BASE
+          value: https://ai-inference.apps.cluster-qbq4v.qbq4v.sandbox2667.opentlc.com/models/redhataigemma-4-31b-it/v1
+        - name: LANGFLOW_URL
+          value: http://langflow-service-backend.otel25-sdg.svc.cluster.local:7860/api/v1/run/90d9df0e-6bdd-465b-8064-385998b1a437
+        image: image-registry.openshift-image-registry.svc:5000/otel25-sdg/sdg-pipeline:latest
+        resources:
+          cpuLimit: 1.0
+          cpuRequest: 0.25
+          memoryLimit: 1.073741824
+          memoryRequest: 0.536870912
+          resourceCpuLimit: '1'
+          resourceCpuRequest: 250m
+          resourceMemoryLimit: 1Gi
+          resourceMemoryRequest: 512Mi
+    exec-generate-tier-4:
+      container:
+        args:
+        - --tiers
+        - '{{$.inputs.parameters[''tier'']}}'
+        - --output-dir
+        - '{{$.outputs.artifacts[''raw_output''].path}}'
+        - --gateway-url
+        - '{{$.inputs.parameters[''gateway_url'']}}'
+        - --keycloak-url
+        - '{{$.inputs.parameters[''keycloak_url'']}}'
+        - --client-id
+        - '{{$.inputs.parameters[''client_id'']}}'
+        command:
+        - python3
+        - -m
+        - sdg.scripts.run-generation
+        env:
+        - name: VLLM_API_BASE
+          value: https://ai-inference.apps.cluster-qbq4v.qbq4v.sandbox2667.opentlc.com/models/redhataigemma-4-31b-it/v1
+        - name: LANGFLOW_URL
+          value: http://langflow-service-backend.otel25-sdg.svc.cluster.local:7860/api/v1/run/90d9df0e-6bdd-465b-8064-385998b1a437
+        image: image-registry.openshift-image-registry.svc:5000/otel25-sdg/sdg-pipeline:latest
+        resources:
+          cpuLimit: 1.0
+          cpuRequest: 0.25
+          memoryLimit: 1.073741824
+          memoryRequest: 0.536870912
+          resourceCpuLimit: '1'
+          resourceCpuRequest: 250m
+          resourceMemoryLimit: 1Gi
+          resourceMemoryRequest: 512Mi
+    exec-generate-tier-5:
+      container:
+        args:
+        - --tiers
+        - '{{$.inputs.parameters[''tier'']}}'
+        - --output-dir
+        - '{{$.outputs.artifacts[''raw_output''].path}}'
+        - --gateway-url
+        - '{{$.inputs.parameters[''gateway_url'']}}'
+        - --keycloak-url
+        - '{{$.inputs.parameters[''keycloak_url'']}}'
+        - --client-id
+        - '{{$.inputs.parameters[''client_id'']}}'
+        command:
+        - python3
+        - -m
+        - sdg.scripts.run-generation
+        env:
+        - name: VLLM_API_BASE
+          value: https://ai-inference.apps.cluster-qbq4v.qbq4v.sandbox2667.opentlc.com/models/redhataigemma-4-31b-it/v1
+        - name: LANGFLOW_URL
+          value: http://langflow-service-backend.otel25-sdg.svc.cluster.local:7860/api/v1/run/90d9df0e-6bdd-465b-8064-385998b1a437
+        image: image-registry.openshift-image-registry.svc:5000/otel25-sdg/sdg-pipeline:latest
+        resources:
+          cpuLimit: 1.0
+          cpuRequest: 0.25
+          memoryLimit: 1.073741824
+          memoryRequest: 0.536870912
+          resourceCpuLimit: '1'
+          resourceCpuRequest: 250m
+          resourceMemoryLimit: 1Gi
+          resourceMemoryRequest: 512Mi
+pipelineInfo:
+  description: Generate telecom tool-calling training examples per tier (tool-coverage
+    gated, one artifact per tier), report coverage, and run three-stage evaluation
+    + OSFT delivery. See .planning/phases/04-sdg-pipeline-and-dataset-production/04-LEARNINGS.md
+    for the rejection-sampling and per-tier-split design rationale.
+  name: sdg-production-pipeline
+root:
+  dag:
+    tasks:
+      coverage-report:
+        cachingOptions: {}
+        componentRef:
+          name: comp-coverage-report
+        dependentTasks:
+        - generate-tier
+        - generate-tier-2
+        - generate-tier-3
+        - generate-tier-4
+        - generate-tier-5
+        inputs:
+          artifacts:
+            raw_closed_loop:
+              taskOutputArtifact:
+                outputArtifactKey: raw_output
+                producerTask: generate-tier-5
+            raw_multi_turn:
+              taskOutputArtifact:
+                outputArtifactKey: raw_output
+                producerTask: generate-tier-4
+            raw_parallel:
+              taskOutputArtifact:
+                outputArtifactKey: raw_output
+                producerTask: generate-tier-2
+            raw_sequential:
+              taskOutputArtifact:
+                outputArtifactKey: raw_output
+                producerTask: generate-tier-3
+            raw_single_tool:
+              taskOutputArtifact:
+                outputArtifactKey: raw_output
+                producerTask: generate-tier
+        taskInfo:
+          name: coverage-report
+      evaluate-and-deliver:
+        cachingOptions: {}
+        componentRef:
+          name: comp-evaluate-and-deliver
+        dependentTasks:
+        - generate-tier
+        - generate-tier-2
+        - generate-tier-3
+        - generate-tier-4
+        - generate-tier-5
+        inputs:
+          artifacts:
+            raw_closed_loop:
+              taskOutputArtifact:
+                outputArtifactKey: raw_output
+                producerTask: generate-tier-5
+            raw_multi_turn:
+              taskOutputArtifact:
+                outputArtifactKey: raw_output
+                producerTask: generate-tier-4
+            raw_parallel:
+              taskOutputArtifact:
+                outputArtifactKey: raw_output
+                producerTask: generate-tier-2
+            raw_sequential:
+              taskOutputArtifact:
+                outputArtifactKey: raw_output
+                producerTask: generate-tier-3
+            raw_single_tool:
+              taskOutputArtifact:
+                outputArtifactKey: raw_output
+                producerTask: generate-tier
+        taskInfo:
+          name: evaluate-and-deliver
+      generate-tier:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-generate-tier
+        inputs:
+          parameters:
+            client_id:
+              componentInputParameter: client_id
+            gateway_url:
+              componentInputParameter: gateway_url
+            keycloak_url:
+              componentInputParameter: keycloak_url
+            tier:
+              runtimeValue:
+                constant: single_tool
+        taskInfo:
+          name: generate-tier
+      generate-tier-2:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-generate-tier-2
+        dependentTasks:
+        - generate-tier
+        inputs:
+          parameters:
+            client_id:
+              componentInputParameter: client_id
+            gateway_url:
+              componentInputParameter: gateway_url
+            keycloak_url:
+              componentInputParameter: keycloak_url
+            tier:
+              runtimeValue:
+                constant: parallel
+        taskInfo:
+          name: generate-tier-2
+      generate-tier-3:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-generate-tier-3
+        dependentTasks:
+        - generate-tier-2
+        inputs:
+          parameters:
+            client_id:
+              componentInputParameter: client_id
+            gateway_url:
+              componentInputParameter: gateway_url
+            keycloak_url:
+              componentInputParameter: keycloak_url
+            tier:
+              runtimeValue:
+                constant: sequential
+        taskInfo:
+          name: generate-tier-3
+      generate-tier-4:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-generate-tier-4
+        dependentTasks:
+        - generate-tier-3
+        inputs:
+          parameters:
+            client_id:
+              componentInputParameter: client_id
+            gateway_url:
+              componentInputParameter: gateway_url
+            keycloak_url:
+              componentInputParameter: keycloak_url
+            tier:
+              runtimeValue:
+                constant: multi_turn
+        taskInfo:
+          name: generate-tier-4
+      generate-tier-5:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-generate-tier-5
+        dependentTasks:
+        - generate-tier-4
+        inputs:
+          parameters:
+            client_id:
+              componentInputParameter: client_id
+            gateway_url:
+              componentInputParameter: gateway_url
+            keycloak_url:
+              componentInputParameter: keycloak_url
+            tier:
+              runtimeValue:
+                constant: closed_loop
+        taskInfo:
+          name: generate-tier-5
+  inputDefinitions:
+    parameters:
+      client_id:
+        defaultValue: sdg-pipeline
+        isOptional: true
+        parameterType: STRING
+      gateway_url:
+        defaultValue: https://mcp.apps.cluster-wfhjs.wfhjs.sandbox1330.opentlc.com/mcp
+        isOptional: true
+        parameterType: STRING
+      keycloak_url:
+        defaultValue: https://mcp-keycloak-otel25-gateway.apps.cluster-wfhjs.wfhjs.sandbox1330.opentlc.com
+        isOptional: true
+        parameterType: STRING
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.17.0
+---
+platforms:
+  kubernetes:
+    deploymentSpec:
+      executors:
+        exec-evaluate-and-deliver:
+          secretAsEnv:
+          - keyToEnv:
+            - envVar: CLIENT_SECRET
+              secretKey: CLIENT_SECRET
+            optional: false
+            secretName: keycloak-client-secret-sdg-pipeline
+            secretNameParameter:
+              runtimeValue:
+                constant: keycloak-client-secret-sdg-pipeline
+          - keyToEnv:
+            - envVar: VLLM_API_KEY
+              secretKey: api-key
+            optional: false
+            secretName: maas-rhdp-api-key
+            secretNameParameter:
+              runtimeValue:
+                constant: maas-rhdp-api-key
+          - keyToEnv:
+            - envVar: LANGFLOW_API_KEY
+              secretKey: LANGFLOW_API_KEY
+            optional: false
+            secretName: langflow-api-key-sdg-pipeline
+            secretNameParameter:
+              runtimeValue:
+                constant: langflow-api-key-sdg-pipeline
+        exec-generate-tier:
+          secretAsEnv:
+          - keyToEnv:
+            - envVar: CLIENT_SECRET
+              secretKey: CLIENT_SECRET
+            optional: false
+            secretName: keycloak-client-secret-sdg-pipeline
+            secretNameParameter:
+              runtimeValue:
+                constant: keycloak-client-secret-sdg-pipeline
+          - keyToEnv:
+            - envVar: VLLM_API_KEY
+              secretKey: api-key
+            optional: false
+            secretName: maas-rhdp-api-key
+            secretNameParameter:
+              runtimeValue:
+                constant: maas-rhdp-api-key
+          - keyToEnv:
+            - envVar: LANGFLOW_API_KEY
+              secretKey: LANGFLOW_API_KEY
+            optional: false
+            secretName: langflow-api-key-sdg-pipeline
+            secretNameParameter:
+              runtimeValue:
+                constant: langflow-api-key-sdg-pipeline
+        exec-generate-tier-2:
+          secretAsEnv:
+          - keyToEnv:
+            - envVar: CLIENT_SECRET
+              secretKey: CLIENT_SECRET
+            optional: false
+            secretName: keycloak-client-secret-sdg-pipeline
+            secretNameParameter:
+              runtimeValue:
+                constant: keycloak-client-secret-sdg-pipeline
+          - keyToEnv:
+            - envVar: VLLM_API_KEY
+              secretKey: api-key
+            optional: false
+            secretName: maas-rhdp-api-key
+            secretNameParameter:
+              runtimeValue:
+                constant: maas-rhdp-api-key
+          - keyToEnv:
+            - envVar: LANGFLOW_API_KEY
+              secretKey: LANGFLOW_API_KEY
+            optional: false
+            secretName: langflow-api-key-sdg-pipeline
+            secretNameParameter:
+              runtimeValue:
+                constant: langflow-api-key-sdg-pipeline
+        exec-generate-tier-3:
+          secretAsEnv:
+          - keyToEnv:
+            - envVar: CLIENT_SECRET
+              secretKey: CLIENT_SECRET
+            optional: false
+            secretName: keycloak-client-secret-sdg-pipeline
+            secretNameParameter:
+              runtimeValue:
+                constant: keycloak-client-secret-sdg-pipeline
+          - keyToEnv:
+            - envVar: VLLM_API_KEY
+              secretKey: api-key
+            optional: false
+            secretName: maas-rhdp-api-key
+            secretNameParameter:
+              runtimeValue:
+                constant: maas-rhdp-api-key
+          - keyToEnv:
+            - envVar: LANGFLOW_API_KEY
+              secretKey: LANGFLOW_API_KEY
+            optional: false
+            secretName: langflow-api-key-sdg-pipeline
+            secretNameParameter:
+              runtimeValue:
+                constant: langflow-api-key-sdg-pipeline
+        exec-generate-tier-4:
+          secretAsEnv:
+          - keyToEnv:
+            - envVar: CLIENT_SECRET
+              secretKey: CLIENT_SECRET
+            optional: false
+            secretName: keycloak-client-secret-sdg-pipeline
+            secretNameParameter:
+              runtimeValue:
+                constant: keycloak-client-secret-sdg-pipeline
+          - keyToEnv:
+            - envVar: VLLM_API_KEY
+              secretKey: api-key
+            optional: false
+            secretName: maas-rhdp-api-key
+            secretNameParameter:
+              runtimeValue:
+                constant: maas-rhdp-api-key
+          - keyToEnv:
+            - envVar: LANGFLOW_API_KEY
+              secretKey: LANGFLOW_API_KEY
+            optional: false
+            secretName: langflow-api-key-sdg-pipeline
+            secretNameParameter:
+              runtimeValue:
+                constant: langflow-api-key-sdg-pipeline
+        exec-generate-tier-5:
+          secretAsEnv:
+          - keyToEnv:
+            - envVar: CLIENT_SECRET
+              secretKey: CLIENT_SECRET
+            optional: false
+            secretName: keycloak-client-secret-sdg-pipeline
+            secretNameParameter:
+              runtimeValue:
+                constant: keycloak-client-secret-sdg-pipeline
+          - keyToEnv:
+            - envVar: VLLM_API_KEY
+              secretKey: api-key
+            optional: false
+            secretName: maas-rhdp-api-key
+            secretNameParameter:
+              runtimeValue:
+                constant: maas-rhdp-api-key
+          - keyToEnv:
+            - envVar: LANGFLOW_API_KEY
+              secretKey: LANGFLOW_API_KEY
+            optional: false
+            secretName: langflow-api-key-sdg-pipeline
+            secretNameParameter:
+              runtimeValue:
+                constant: langflow-api-key-sdg-pipeline

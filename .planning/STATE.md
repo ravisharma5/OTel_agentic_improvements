@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Phase 4 Wave 3 (04-07) checkpoint-blocked at Task 3 — awaiting RHOAI model deployment + Farbod's team OSFT confirmation
-last_updated: "2026-10-07T14:30:07.598Z"
-last_activity: 2026-10-05 -- Phase 4 execution started
+stopped_at: Phase 4 Plan 7 Task 3/4 in progress -- pipeline infra built, first full run (106 examples) produced closed_loop coverage failures; system-prompt fix attempted and reverted (2026-10-11)
+last_updated: "2026-10-11T23:59:00.000Z"
+last_activity: 2026-10-11 -- Phase 5 + Phase 6 completed and pushed; Phase 4 Task 3/4 work (pipeline infra + first full run) remains uncommitted
 progress:
-  total_phases: 5
-  completed_phases: 4
-  total_plans: 20
-  completed_plans: 20
-  percent: 80
+  total_phases: 6
+  completed_phases: 5
+  total_plans: 24
+  completed_plans: 23
+  percent: 96
 ---
 
 # Project State
@@ -21,16 +21,22 @@ progress:
 See: .planning/PROJECT.md (updated 2026-09-26)
 
 **Core value:** OTel 2.5 can correctly call telecom tools (TMF, CAMARA, NWDAF) to complete fault prediction workflows -- measured by improvement on ZTE-AIM/TFCE benchmark over OTel 2.0.
-**Current focus:** Phase 4 — SDG Pipeline and Dataset Production
+**Current focus:** Phase 4 — SDG Pipeline and Dataset Production (only remaining open phase; 5 and 6 are complete)
 
 ## Current Position
 
-Phase: 4 (SDG Pipeline and Dataset Production) — EXECUTING
-Plan: 1 of 7
-Status: Executing Phase 4
-Last activity: 2026-10-05 -- Phase 4 execution started
+Phase: 4 (SDG Pipeline and Dataset Production) — EXECUTING (6/7 plans complete; Plan 7 partial)
+Plan: 7 of 7 -- Task 3/4 (production run + delivery), partial
+Status: Executing Phase 4 Plan 7
 
-Progress: [..........] 0%
+Progress: [█████████░] 96% (23/24 plans across all phases; Phases 1,2,3,5,6 complete, Phase 4 at 6.5/7)
+
+**Phase 4 Plan 7 detail (not reflected in 04-07-SUMMARY.md, which predates this work):**
+- Tasks 1-2 (scripts + notebooks): committed, summarized 2026-10-07
+- Task 3 infra was actually built and deployed since then but never committed or summarized: `sdg/pipelines/sdg_production_pipeline.{py,yaml}` (Kubeflow/DSPA pipeline), `sdg/openshift/` (DSPA, dry-run Job, MCP token-refresher CronJob, garage/MinIO manifest), `sdg/scripts/tool_coverage_report.py`, `sdg/scripts/refresh-mcp-token.py`, `sdg/lib/trace_utils.py`, `sdg/lib/streaming_llm_chat_block.py`, plus matching tests
+- A first full run executed 2026-10-10, producing `deliverables/2026-10-10-first-full-run/` (106 examples -- far short of the 5,000-10,000 target) and a `closed_loop_analysis/closed_loop_coverage_failed.jsonl` showing closed_loop tier tool-coverage gaps
+- 2026-10-11 session (see consumed handoff) investigated and tried to fix the closed_loop gap via two Langflow system-prompt variants; both failed and were reverted -- documented honestly in `sdg/README.md` and `04-LEARNINGS.md`
+- None of this Task 3/4 work is committed yet -- it sits alongside an older, unrelated pile of pre-existing uncommitted changes (blog drafts, notebook edits) that the 2026-10-11 session deliberately left untouched
 
 ## Performance Metrics
 
@@ -94,6 +100,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-10-07T14:30:07.591Z
-Stopped at: Phase 4 Wave 3 (04-07) checkpoint-blocked at Task 3 — awaiting RHOAI model deployment + Farbod's team OSFT confirmation
-Resume file: .planning/phases/04-sdg-pipeline-and-dataset-production/04-07-SUMMARY.md
+Last session: 2026-10-11 (handoff loaded 2026-10-11, see consumed handoff `20261011-233601.md`)
+Stopped at: Phase 4 Plan 7 Task 3/4 in progress; closed_loop system-prompt fix attempted and reverted; uncommitted pipeline infra + first-full-run deliverables need review/commit
+Resume file: .planning/phases/04-sdg-pipeline-and-dataset-production/04-07-SUMMARY.md (stale -- predates Task 3 infra work, needs updating once that work is committed)
