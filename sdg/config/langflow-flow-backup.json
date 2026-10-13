@@ -4610,7 +4610,7 @@
         }
     },
     "is_component": false,
-    "updated_at": "2026-10-13T16:42:11+00:00",
+    "updated_at": "2026-10-13T21:47:36+00:00",
     "webhook": false,
     "endpoint_name": null,
     "tags": [],
@@ -4623,8 +4623,8 @@
     "a2a_enabled": false,
     "a2a_card_overrides": null,
     "id": "90d9df0e-6bdd-465b-8064-385998b1a437",
-    "user_id": "c692f241-e9ad-40a9-b35d-cc3d8bb85ab6",
-    "folder_id": "f3475d9a-0c65-47ae-a06b-cd7043600267",
+    "user_id": "32cce648-1048-46f7-b430-49260fb42c5a",
+    "folder_id": "00bf2a2f-5ea9-4d37-a579-ab2de926cd01",
     "workspace_id": null,
     "name_key": null
 }

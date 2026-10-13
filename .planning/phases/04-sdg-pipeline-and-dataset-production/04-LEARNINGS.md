@@ -735,3 +735,40 @@ attachment, only how fast Kubernetes notices), or moving off a single Postgres p
 HA Postgres operator, out of scope for this project's sandbox-only use). Whoever hits this again
 should go straight to "delete and recreate the PVC" rather than trying to force-fix the stuck
 attachment from inside the cluster -- that was a dead end here.
+
+## 2026-10-13 -- Langflow's Agent component needs VLLM_API_KEY/VLLM_API_BASE as real pod env vars, not a flow-level credential
+
+Migrating Langflow to Postgres (previous entry) surfaced a second, unrelated gap: after the fresh
+DB came up, the flow's own `Agent` node started hitting the real `platform.openai.com` with an
+empty/wrong API key instead of the self-hosted vLLM/Gemma model. Root-caused by directly inspecting
+this Langflow version's Postgres schema (newer than expected -- has a `model_provider_policy`/
+`catalog_policy_rule`/`deployment_provider_account` system layered over the classic `variable`
+table, none of which turned out to be where this particular field's value comes from):
+
+The Agent node's `model` field selects a catalog entry (`provider: vLLM`, `name:
+redhataigemma-4-31b-it`) whose metadata declares `api_key_param`/`base_url_param`, but the actual
+connection values are NOT stored per-flow, per-variable, or in any of those policy tables (checked
+`deployment_provider_account` directly -- 0 rows, and its enum only supports `watsonx-orchestrate`,
+a red herring). The field's own UI description was the actual answer: "Falls back to the
+VLLM_API_KEY environment variable (optional for local servers)" -- meant literally. Setting
+`VLLM_API_KEY` (from the `maas-rhdp-api-key` Secret, same one the KFP pipeline tasks already use)
+and `VLLM_API_BASE` as real env vars directly on the `langflow-service` StatefulSet, with the flow's
+own `api_key`/`model.value[0].base_url` fields left genuinely empty, fixed it immediately --
+confirmed via a direct `/api/v1/run/{flow_id}` smoke test getting a real response from
+`redhataigemma-4-31b-it` before trusting it with a full pipeline run.
+
+Two wrong turns before finding this, each worth avoiding next time: (1) directly setting a literal
+`api_key` value in the flow's own JSON via PATCH -- this appeared to work once, then silently
+reverted to the OpenAI fallback on the next build, suggesting the raw template value isn't what
+actually gets read at run time for this field type; (2) injecting a `base_url` key into
+`model.value[0]`/`model.options[0]` matching the metadata's declared `base_url_param` name -- also
+silently ignored. Trust the field's own documented fallback behavior before reverse-engineering the
+DB schema.
+
+**Not yet known**: whether `VLLM_API_KEY`/`VLLM_API_BASE` were already set on `langflow-service`
+before today (they weren't present when checked, yet the identical flow ran successfully for 3.5
+hours earlier the same day) or whether something else about the pre-migration SQLite-backed instance
+resolved this differently. Not investigated further since the current fix is confirmed working and
+this StatefulSet isn't a committed manifest in this repo (Helm-installed, live-patched throughout
+today) -- if `langflow-service` is ever recreated from the Helm chart fresh, remember these two env
+vars are required and won't come from the chart's own defaults.
