@@ -13,6 +13,7 @@ invocation convention.
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 from pathlib import Path
 from unittest import mock
@@ -171,6 +172,52 @@ def test_checkpoint_dir_is_scoped_per_attempt_not_shared(monkeypatch, tmp_path):
     assert str(checkpoint_base / "single_tool" / "attempt_1") == attempt_1_dir
     assert str(checkpoint_base / "single_tool" / "attempt_2") == attempt_2_dir
     assert fake_flow.call_kwargs[0]["save_freq"] == 1
+
+
+def test_empty_dataset_error_recovers_already_checkpointed_chunks(monkeypatch, tmp_path):
+    """2026-10-13 live failure: sdg_hub's _process_with_checkpointing has no
+    per-chunk exception handling -- when seed 2 of an 11-seed attempt hits
+    EmptyDatasetError, the exception propagates immediately, discarding
+    seed 1's already-successful, already-checkpointed rows along with it if
+    the handler just does `rows = []`. Simulates that exact scenario: a
+    checkpoint file exists on disk (written before the failure, as sdg_hub's
+    FlowCheckpointer actually does) for a scenario OTHER than the one in
+    `remaining` -- the handler must recover it instead of discarding it, and
+    the still-failing scenario must still be retried on the next attempt."""
+    seed_ok = _seed("single_check_alarms")
+    seed_fails = _seed("single_get_nwdaf_analytics")
+    checkpoint_base = tmp_path / "checkpoints"
+    attempt_1_dir = checkpoint_base / "single_tool" / "attempt_1"
+    attempt_1_dir.mkdir(parents=True)
+    # Simulate FlowCheckpointer having already saved seed_ok's chunk to disk
+    # before seed_fails's chunk raised EmptyDatasetError and killed the call.
+    recovered_row = _row("single_check_alarms", ["toolA"])
+    (attempt_1_dir / "checkpoint_0001.jsonl").write_text(json.dumps(recovered_row) + "\n")
+
+    fake_flow = _FakeFlow([
+        run_generation.EmptyDatasetError("filter_incomplete_responses"),
+        [_row("single_get_nwdaf_analytics", ["toolA"])],
+    ])
+    monkeypatch.setattr(run_generation.Flow, "from_yaml", lambda path: fake_flow)
+
+    results = run_generation._run_generation(
+        config={"model_config": {}, "agent_config": {}, "runtime_params": {}},
+        seeds=[seed_ok, seed_fails],
+        output_dir=tmp_path / "out",
+        tier_name="single_tool",
+        checkpoint_dir=checkpoint_base,
+        checkpoint_save_freq=1,
+    )
+
+    scenario_names = {r["scenario_name"] for r in results}
+    assert "single_check_alarms" in scenario_names, (
+        "seed_ok's already-checkpointed row must be recovered, not discarded, "
+        "when a later chunk in the same attempt fails"
+    )
+    assert "single_get_nwdaf_analytics" in scenario_names, (
+        "seed_fails must still be retried and succeed on attempt 2"
+    )
+    assert fake_flow.calls == 2
 
 
 def test_checkpoint_dir_disabled_when_not_passed(monkeypatch, tmp_path):

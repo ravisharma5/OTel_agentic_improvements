@@ -542,22 +542,40 @@ def _run_generation(
             )
         except EmptyDatasetError:
             # sdg_hub's own quality filters (question-quality, response-
-            # completeness) can legitimately zero out an entire attempt --
-            # confirmed live: a coverage-gate resample of a single seed
-            # (multiplied to 20 rows by multiply_tool_rows) had all 20
-            # fail filter_incomplete_responses, and flow.generate() raises
-            # EmptyDatasetError rather than returning an empty result.
-            # Within this retry loop that's just "this attempt produced
-            # nothing," not a fatal error -- treat it as zero rows so the
-            # loop resamples again (or records a coverage-gate failure on
-            # the last attempt) instead of crashing the whole tier.
-            logger.warning(
-                "Tier '%s' attempt %d/%d: all rows filtered out by sdg_hub's "
-                "own quality gates (EmptyDatasetError) -- treating as zero "
-                "survivors for this attempt.",
-                tier_name, attempt, MAX_ATTEMPTS,
-            )
+            # completeness) can legitimately zero out a single chunk -- e.g.
+            # a coverage-gate resample of one seed (multiplied to 20 rows by
+            # multiply_tool_rows) had all 20 fail filter_incomplete_responses.
+            # When that happens sdg_hub's _process_with_checkpointing has no
+            # per-chunk exception handling (confirmed via source inspection,
+            # 2026-10-13): the exception propagates out of flow.generate()
+            # immediately, WITHOUT returning any earlier chunks in this same
+            # attempt that already succeeded and were already written to
+            # checkpoint_*.jsonl files on disk by FlowCheckpointer.
+            # Originally this handler just discarded everything with
+            # `rows = []` -- confirmed live this threw away 15 perfectly
+            # good, already-generated examples from seed 1 of an 11-seed
+            # attempt because seed 2 alone hit this empty-chunk case. Recover
+            # whatever chunks did succeed from disk instead of discarding
+            # them; only seeds whose chunk never completed are genuinely
+            # zero rows for this attempt (and get resampled/recorded as
+            # coverage-gate failures same as before).
             rows = []
+            if attempt_checkpoint_dir and os.path.isdir(attempt_checkpoint_dir):
+                import pandas as pd
+                checkpoint_files = sorted(Path(attempt_checkpoint_dir).glob("checkpoint_*.jsonl"))
+                if checkpoint_files:
+                    recovered = pd.concat(
+                        [pd.read_json(f, lines=True) for f in checkpoint_files],
+                        ignore_index=True,
+                    )
+                    rows = recovered.to_dict("records")
+            logger.warning(
+                "Tier '%s' attempt %d/%d: a chunk was filtered to zero rows by "
+                "sdg_hub's own quality gates (EmptyDatasetError), which aborts "
+                "the whole attempt in sdg_hub -- recovered %d row(s) from "
+                "earlier chunks' checkpoint files instead of discarding them.",
+                tier_name, attempt, MAX_ATTEMPTS, len(rows),
+            )
 
         for row in rows:
             scenario = row.get("scenario_name") or row.get("mcp_server_name")
