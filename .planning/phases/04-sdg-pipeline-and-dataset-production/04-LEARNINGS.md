@@ -689,3 +689,49 @@ from that test (both would have silently blocked the next migration otherwise):
 
 Verified the resulting `nextgcore-runtime-test` image actually contains the real NF binaries
 (`nextgcore-amfd`, `nextgcore-ausfd`, etc.) via a throwaway pod, not just a structurally-valid build.
+
+## 2026-10-13 -- sandbox3435 API server died outright; cut over to sandbox4001; then sandbox4001's Keycloak PVC fix backfired on its first real node failure
+
+**sandbox3435 fully died, not just degraded**: mid-run, its API server became completely
+unreachable (sustained TLS handshake timeouts across repeated attempts over 20+ seconds, not a
+blip), on top of a worker node that had already been permanently `NotReady` for a day. Cut over to
+sandbox4001 (a 5-node, 3-control-plane HA cluster stood up and fully verified as a standby earlier
+the same day for exactly this scenario) -- updated `sdg_production_pipeline.py`'s `gateway_url`/
+`keycloak_url` defaults, re-synced the Keycloak client secret, patched Langflow's flow JSON (same
+gotcha as the sandbox1330->3435 cutover: it caches the MCP Tools URL independently of pipeline
+params), repointed `mcp-token-refresher`, and resubmitted.
+
+**Also raised `GENERATION_MAX_CONCURRENCY` 4 -> 8 at the same time**, paired this time with
+`LANGFLOW_NUM_WORKERS` 4 -> 8 (the single-worker-process bottleneck from the first concurrency=8
+attempt, see 2026-10-12 entry, is what's actually fixed now) and preemptive resource bumps on
+Langflow, the sandbox4001 gateway (previously had zero resources set at all), and all 8 domain MCP
+servers. This combination ran cleanly for ~3.5 hours (196-row `run_expert_trajectory` block, steady
+pace, zero errors) before failing for an unrelated reason (below) -- concurrency=8 itself appears
+genuinely fixed this time, not just not-yet-triggered.
+
+**Then a different node on sandbox4001 (a control-plane node, `ip-10-0-48-127`) went NotReady**,
+and this time it stranded `keycloak-postgres` rather than Keycloak itself -- `Multi-Attach error`
+on the RWO PVC added earlier that same day specifically to fix the ephemeral-storage problem. The
+PVC fix traded one failure mode for a worse one: before it, a node death just meant Postgres
+restarted with empty (expected-to-be-empty) storage; after it, a node death leaves the EBS volume
+genuinely stuck attached to the dead EC2 instance at the AWS API level (`VolumeInUse` on
+`AttachVolume`, confirmed via `oc describe pod` events, not just a Kubernetes-level stuck object --
+force-deleting the pod and the `VolumeAttachment` object did not help, since neither actually
+reaches AWS's `DetachVolume` call when the source node is unreachable to confirm the unmount).
+Fixing this properly requires an actual `aws ec2 detach-volume --force` call against sandbox4001's
+AWS account -- not available in this session (only sandbox2667's AWS credentials are configured
+here). Worked around it instead by abandoning the stuck PVC/volume entirely (delete PVC with
+finalizers force-removed, recreate from the same committed manifest, which provisions a brand-new
+EBS volume rather than reattaching the stuck one) and re-running `configure-keycloak.sh` -- same
+realm-loss tradeoff as the original ephemeral-storage problem the PVC was meant to fix, but at
+least self-service without needing AWS access.
+
+**Residual risk, not yet fixed**: `keycloak-postgres` is still a single-replica, single-writer
+component with no real HA story -- the PVC protects data on a *clean* reschedule but makes a *dirty*
+one (node genuinely dies/goes unreachable) worse, not better, because of RWO's stuck-attachment
+failure mode. A real fix needs one of: AWS credentials in-session to force-detach when this
+recurs, a `ReadWriteOncePod` + faster eviction toleration (doesn't fix the AWS-level stuck
+attachment, only how fast Kubernetes notices), or moving off a single Postgres pod entirely (a real
+HA Postgres operator, out of scope for this project's sandbox-only use). Whoever hits this again
+should go straight to "delete and recreate the PVC" rather than trying to force-fix the stuck
+attachment from inside the cluster -- that was a dead end here.
