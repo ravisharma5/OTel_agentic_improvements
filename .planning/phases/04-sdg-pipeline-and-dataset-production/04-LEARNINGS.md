@@ -669,12 +669,23 @@ found, root cause not yet identified. Re-verify against the new cluster once it'
 cluster fixes this on its own, since it looks gateway/auth-layer-specific rather than node/cluster-health
 related.
 
-**Still open, needs sandbox1330** (if it's brought back up before being retired): the `nextgcore-builder`
-and `nextgcore-runtime` BuildConfigs (Docker strategy, 8 CPU/16Gi and 2 CPU/4Gi respectively, per
-`01-04-SUMMARY.md`) were created live via `oc new-build`-equivalent commands that were never captured as
-committed YAML -- only `backends/openshift/nextgcore/Dockerfile.runtime` (the second stage) is in the
-repo. The first stage (`nextgcore-builder`, compiling NextGCore from `github.com/NextgCoreLab/nextgcore.git`,
-`docker/rust/Dockerfile.builder`, ~18 min build) has no committed BuildConfig at all. Exporting the live
-`BuildConfig`/`ImageStream` objects from sandbox1330 (`oc get buildconfig,imagestream -n otel25-backends -o yaml`)
-and committing scrubbed versions is safer than reconstructing from docs blind, given the cost of a wrong
-guess (git ref, build resources) on an 18-minute compile.
+**Resolved same day**: the user brought sandbox1330 back up specifically to recover this before deleting
+it for good. `backends/openshift/nextgcore/buildconfig-nextgcore.yaml` + `deploy-build.sh` now commit both
+BuildConfigs, live-tested end-to-end on sandbox1330 before it was decommissioned. Two non-obvious findings
+from that test (both would have silently blocked the next migration otherwise):
+
+1. A first attempt converted `nextgcore-builder` to a Git-sourced BuildConfig (simpler, no local clone
+   step) -- it failed. `docker/rust/Dockerfile.builder` does `COPY nextgcore/src ...` *and*
+   `COPY nextgsim ...`: it compiles NextGCore and its companion nextgsim simulator together from two
+   sibling directories in the build context. A single-repo Git source can only ever produce one repo as
+   the context root, so this layout is impossible to express that way. Reverted to Binary source
+   (matching what originally worked), with the two-repo clone now scripted in `deploy-build.sh` instead of
+   being a manual, undocumented step (it clones both `github.com/NextgCoreLab/{nextgcore,nextgsim}.git`
+   into a temp dir as siblings, then `oc start-build --from-dir=<that dir>`).
+2. `nextgcore-runtime`'s BuildConfig needs an explicit `dockerfilePath: Dockerfile.runtime` -- a single
+   `oc start-build --from-file=Dockerfile.runtime` upload keeps its original filename in the build context
+   rather than being renamed to `Dockerfile`, so the Docker strategy's default lookup fails with
+   "no such file or directory" without this.
+
+Verified the resulting `nextgcore-runtime-test` image actually contains the real NF binaries
+(`nextgcore-amfd`, `nextgcore-ausfd`, etc.) via a throwaway pod, not just a structurally-valid build.
