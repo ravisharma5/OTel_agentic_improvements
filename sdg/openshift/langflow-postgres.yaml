@@ -10,15 +10,31 @@
 # separately moving storage off SQLite's single-process-file model so
 # Langflow itself could eventually run more than one replica if needed.
 #
-# This manifest already includes the two hardening fixes discovered the hard
-# way on Keycloak's Postgres earlier the same day: a PVC (so data survives a
-# pod reschedule) and a soft control-plane node-affinity preference. Known
-# residual risk carried over from that incident: if the node holding this
-# pod goes truly unreachable (not just restarted), the EBS volume can get
-# stuck attached to the dead instance at the AWS API level -- see
-# gateway/openshift/ebs-volume-watchdog-cronjob.yaml, which should be
-# deployed here too (parameterize WATCHDOG_NAMESPACE=otel25-sdg and create a
-# separate scoped IAM user for whichever AWS account this cluster lives in).
+# This manifest includes the PVC hardening fix discovered the hard way on
+# Keycloak's Postgres earlier the same day (data survives a pod reschedule),
+# and gateway/openshift/ebs-volume-watchdog-cronjob.yaml is deployed here too
+# (namespace otel25-sdg, a separate scoped IAM user for this cluster's AWS
+# account) protecting against the matching stuck-EBS-attachment failure mode.
+#
+# Deliberately does NOT carry over Keycloak's control-plane node-affinity
+# preference -- tried it first, then reverted after confirming it was
+# actively counterproductive here: this cluster (sandbox2667) has exactly one
+# control-plane node that's ALSO a heavily-loaded worker (GPU scheduling,
+# KFP/DSPA components), unlike the gateway clusters where control-plane nodes
+# are lightly-loaded and the preference made sense for stability. Confirmed
+# live: with the affinity, the scheduler placed this pod on that one node at
+# 93% CPU requests already; removing it let the scheduler pick a node at 10%
+# instead. The lesson that generalizes, not the specific affinity rule: check
+# actual per-node headroom before reusing a placement heuristic from a
+# different cluster's topology.
+#
+# Resources and POSTGRESQL_MAX_CONNECTIONS=300 (below) are sized for 8
+# concurrent Langflow worker processes (LANGFLOW_NUM_WORKERS=8 on
+# langflow-service), each potentially holding its own SQLAlchemy connection
+# pool -- the sclorg image's default max_connections=100 was a real risk of
+# exhaustion under full concurrency, not just a theoretical one. Watch actual
+# connection count (`SELECT count(*) FROM pg_stat_activity`) and pod CPU/mem
+# under a real run before assuming this sizing is final.
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -52,14 +68,6 @@ spec:
       labels:
         app: langflow-postgres
     spec:
-      affinity:
-        nodeAffinity:
-          preferredDuringSchedulingIgnoredDuringExecution:
-          - weight: 100
-            preference:
-              matchExpressions:
-              - key: node-role.kubernetes.io/control-plane
-                operator: Exists
       containers:
       - name: postgres
         image: registry.redhat.io/rhel9/postgresql-16:latest
@@ -78,16 +86,18 @@ spec:
               key: password
         - name: POSTGRESQL_DATABASE
           value: langflow
+        - name: POSTGRESQL_MAX_CONNECTIONS
+          value: "300"
         volumeMounts:
         - name: data
           mountPath: /var/lib/pgsql/data
         resources:
           requests:
-            cpu: 250m
-            memory: 256Mi
-          limits:
             cpu: 500m
-            memory: 512Mi
+            memory: 1Gi
+          limits:
+            cpu: "2"
+            memory: 2Gi
       volumes:
       - name: data
         persistentVolumeClaim:
