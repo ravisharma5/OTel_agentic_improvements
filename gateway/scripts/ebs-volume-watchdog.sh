@@ -17,7 +17,10 @@
 #
 # Runs as a CronJob (ebs-volume-watchdog-cronjob.yaml) via the amazon/aws-cli
 # image -- no custom image build needed, the aws-cli image already bundles
-# bash, curl, and python3 (awscli itself is Python).
+# bash and curl. It does NOT expose a bare python3/jq on PATH (awscli's own
+# Python is embedded, not general-purpose) -- confirmed live, so this script
+# deliberately avoids both and relies on `aws ... --query/--output text`
+# (JMESPath, built into the CLI) plus plain grep instead.
 
 set -euo pipefail
 
@@ -31,17 +34,14 @@ echo "Checking for stuck FailedAttachVolume events in namespace ${NAMESPACE}..."
 EVENTS_JSON=$(curl -sk --cacert "$CACERT" -H "Authorization: Bearer ${TOKEN}" \
   "${K8S_API}/api/v1/namespaces/${NAMESPACE}/events?fieldSelector=reason=FailedAttachVolume")
 
-VOLUME_IDS=$(echo "$EVENTS_JSON" | python3 -c "
-import json, re, sys
-d = json.load(sys.stdin)
-vols = set()
-for item in d.get('items', []):
-    msg = item.get('message', '')
-    m = re.search(r'volume \"(vol-[0-9a-f]+)\"', msg)
-    if m:
-        vols.add(m.group(1))
-print('\n'.join(vols))
-")
+# Plain grep instead of a JSON parser (python3/jq aren't present in the
+# amazon/aws-cli image) -- the volume-id format is distinctive enough that a
+# full JSON parse isn't needed, just pulling the pattern out of the raw body.
+# `|| true`: grep exits 1 on no-match, which is the common/expected case here
+# (no stuck events) -- under `set -e -o pipefail` that would otherwise kill
+# the whole script silently right at this line instead of reaching the
+# explicit empty-check below.
+VOLUME_IDS=$( (echo "$EVENTS_JSON" | grep -oE 'vol-[0-9a-f]+' | sort -u) || true )
 
 if [ -z "$VOLUME_IDS" ]; then
   echo "No FailedAttachVolume events found. Nothing to do."
@@ -50,17 +50,11 @@ fi
 
 for VOL_ID in $VOLUME_IDS; do
   echo "=== Checking ${VOL_ID} ==="
-  ATTACHMENT=$(aws ec2 describe-volumes --volume-ids "$VOL_ID" \
-    --query 'Volumes[0].Attachments[0]' --output json 2>&1)
+  INSTANCE_ID=$(aws ec2 describe-volumes --volume-ids "$VOL_ID" \
+    --query 'Volumes[0].Attachments[0].InstanceId' --output text 2>&1)
 
-  if [ "$ATTACHMENT" = "null" ] || [ -z "$ATTACHMENT" ]; then
+  if [ -z "$INSTANCE_ID" ] || [ "$INSTANCE_ID" = "None" ]; then
     echo "  Volume ${VOL_ID} is not currently attached anywhere. Nothing to do."
-    continue
-  fi
-
-  INSTANCE_ID=$(echo "$ATTACHMENT" | python3 -c "import json,sys; print(json.load(sys.stdin).get('InstanceId',''))")
-  if [ -z "$INSTANCE_ID" ]; then
-    echo "  Could not determine attached instance for ${VOL_ID}. Skipping."
     continue
   fi
 
