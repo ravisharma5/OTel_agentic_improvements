@@ -1,0 +1,184 @@
+# MCP domain server BuildConfigs -- one per server in mcp/<dir>/.
+# Reconstructed 2026-10-13: these only ever existed live (sandbox1330/3435),
+# never committed, discovered as a gap while deploying sandbox4001 from scratch.
+# Each is a plain Binary Docker-strategy build, context = the server's own
+# directory (each has a self-contained Dockerfile, no shared build deps).
+#
+# Deploy: oc apply -f this-file.yaml, then for each (name, dir) pair:
+#   oc start-build <name> -n otel25-mcp --from-dir=mcp/<dir> --follow
+---
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: mcp-camara-device-status
+  namespace: otel25-mcp
+---
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: mcp-camara-device-status
+  namespace: otel25-mcp
+spec:
+  source:
+    type: Binary
+  strategy:
+    type: Docker
+    dockerStrategy: {}
+  output:
+    to:
+      kind: ImageStreamTag
+      name: mcp-camara-device-status:latest
+---
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: mcp-camara
+  namespace: otel25-mcp
+---
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: mcp-camara
+  namespace: otel25-mcp
+spec:
+  source:
+    type: Binary
+  strategy:
+    type: Docker
+    dockerStrategy: {}
+  output:
+    to:
+      kind: ImageStreamTag
+      name: mcp-camara:latest
+---
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: mcp-nwdaf
+  namespace: otel25-mcp
+---
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: mcp-nwdaf
+  namespace: otel25-mcp
+spec:
+  source:
+    type: Binary
+  strategy:
+    type: Docker
+    dockerStrategy: {}
+  output:
+    to:
+      kind: ImageStreamTag
+      name: mcp-nwdaf:latest
+---
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: mcp-telecom
+  namespace: otel25-mcp
+---
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: mcp-telecom
+  namespace: otel25-mcp
+spec:
+  source:
+    type: Binary
+  strategy:
+    type: Docker
+    dockerStrategy: {}
+  output:
+    to:
+      kind: ImageStreamTag
+      name: mcp-telecom:latest
+---
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: mcp-tmf621
+  namespace: otel25-mcp
+---
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: mcp-tmf621
+  namespace: otel25-mcp
+spec:
+  source:
+    type: Binary
+  strategy:
+    type: Docker
+    dockerStrategy: {}
+  output:
+    to:
+      kind: ImageStreamTag
+      name: mcp-tmf621:latest
+---
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: mcp-tmf628
+  namespace: otel25-mcp
+---
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: mcp-tmf628
+  namespace: otel25-mcp
+spec:
+  source:
+    type: Binary
+  strategy:
+    type: Docker
+    dockerStrategy: {}
+  output:
+    to:
+      kind: ImageStreamTag
+      name: mcp-tmf628:latest
+---
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: mcp-tmf642
+  namespace: otel25-mcp
+---
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: mcp-tmf642
+  namespace: otel25-mcp
+spec:
+  source:
+    type: Binary
+  strategy:
+    type: Docker
+    dockerStrategy: {}
+  output:
+    to:
+      kind: ImageStreamTag
+      name: mcp-tmf642:latest
+---
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: mcp-udr
+  namespace: otel25-mcp
+---
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: mcp-udr
+  namespace: otel25-mcp
+spec:
+  source:
+    type: Binary
+  strategy:
+    type: Docker
+    dockerStrategy: {}
+  output:
+    to:
+      kind: ImageStreamTag
+      name: mcp-udr:latest

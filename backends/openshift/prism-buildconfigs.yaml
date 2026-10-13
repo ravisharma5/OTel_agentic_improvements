@@ -1,0 +1,216 @@
+# Prism mock BuildConfigs -- one per vendored OpenAPI spec (backends/specs/).
+# Reconstructed 2026-10-13: these only ever existed live (sandbox1330/3435),
+# never committed, discovered as a gap while deploying sandbox4001 from scratch.
+# Each is a Binary build using backends/prism/Dockerfile (build context = backends/
+# directory) with SPEC_FILE as the build arg selecting the vendored spec.
+#
+# Deploy: oc apply -f this-file.yaml, then for each name:
+#   oc start-build <name> -n otel25-backends --from-dir=backends --follow
+---
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: prism-camara-network-type
+  namespace: otel25-backends
+---
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: prism-camara-network-type
+  namespace: otel25-backends
+spec:
+  source:
+    type: Binary
+  strategy:
+    type: Docker
+    dockerStrategy:
+      dockerfilePath: prism/Dockerfile
+      buildArgs:
+      - name: SPEC_FILE
+        value: specs/camara_connected_network_type.yaml
+  output:
+    to:
+      kind: ImageStreamTag
+      name: prism-camara-network-type:latest
+---
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: prism-camara-reachability
+  namespace: otel25-backends
+---
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: prism-camara-reachability
+  namespace: otel25-backends
+spec:
+  source:
+    type: Binary
+  strategy:
+    type: Docker
+    dockerStrategy:
+      dockerfilePath: prism/Dockerfile
+      buildArgs:
+      - name: SPEC_FILE
+        value: specs/camara_device_reachability_status.yaml
+  output:
+    to:
+      kind: ImageStreamTag
+      name: prism-camara-reachability:latest
+---
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: prism-camara-retrieval
+  namespace: otel25-backends
+---
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: prism-camara-retrieval
+  namespace: otel25-backends
+spec:
+  source:
+    type: Binary
+  strategy:
+    type: Docker
+    dockerStrategy:
+      dockerfilePath: prism/Dockerfile
+      buildArgs:
+      - name: SPEC_FILE
+        value: specs/camara_location_retrieval.yaml
+  output:
+    to:
+      kind: ImageStreamTag
+      name: prism-camara-retrieval:latest
+---
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: prism-camara-roaming
+  namespace: otel25-backends
+---
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: prism-camara-roaming
+  namespace: otel25-backends
+spec:
+  source:
+    type: Binary
+  strategy:
+    type: Docker
+    dockerStrategy:
+      dockerfilePath: prism/Dockerfile
+      buildArgs:
+      - name: SPEC_FILE
+        value: specs/camara_device_roaming_status.yaml
+  output:
+    to:
+      kind: ImageStreamTag
+      name: prism-camara-roaming:latest
+---
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: prism-camara
+  namespace: otel25-backends
+---
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: prism-camara
+  namespace: otel25-backends
+spec:
+  source:
+    type: Binary
+  strategy:
+    type: Docker
+    dockerStrategy:
+      dockerfilePath: prism/Dockerfile
+      buildArgs:
+      - name: SPEC_FILE
+        value: specs/camara_location_verification.yaml
+  output:
+    to:
+      kind: ImageStreamTag
+      name: prism-camara:latest
+---
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: prism-tmf621
+  namespace: otel25-backends
+---
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: prism-tmf621
+  namespace: otel25-backends
+spec:
+  source:
+    type: Binary
+  strategy:
+    type: Docker
+    dockerStrategy:
+      dockerfilePath: prism/Dockerfile
+      buildArgs:
+      - name: SPEC_FILE
+        value: specs/tmf621_troubleticket_v5.0.1.oas.yaml
+  output:
+    to:
+      kind: ImageStreamTag
+      name: prism-tmf621:latest
+---
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: prism-tmf628
+  namespace: otel25-backends
+---
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: prism-tmf628
+  namespace: otel25-backends
+spec:
+  source:
+    type: Binary
+  strategy:
+    type: Docker
+    dockerStrategy:
+      dockerfilePath: prism/Dockerfile
+      buildArgs:
+      - name: SPEC_FILE
+        value: specs/tmf628_performance_v4.0.0.swagger.json
+  output:
+    to:
+      kind: ImageStreamTag
+      name: prism-tmf628:latest
+---
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: prism-tmf642
+  namespace: otel25-backends
+---
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: prism-tmf642
+  namespace: otel25-backends
+spec:
+  source:
+    type: Binary
+  strategy:
+    type: Docker
+    dockerStrategy:
+      dockerfilePath: prism/Dockerfile
+      buildArgs:
+      - name: SPEC_FILE
+        value: specs/tmf642_alarm_v5.0.1.oas.yaml
+  output:
+    to:
+      kind: ImageStreamTag
+      name: prism-tmf642:latest
