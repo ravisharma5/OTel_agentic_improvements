@@ -50,8 +50,21 @@ fi
 
 for VOL_ID in $VOLUME_IDS; do
   echo "=== Checking ${VOL_ID} ==="
-  INSTANCE_ID=$(aws ec2 describe-volumes --volume-ids "$VOL_ID" \
-    --query 'Volumes[0].Attachments[0].InstanceId' --output text 2>&1)
+
+  # Kubernetes Events persist for ~1h after the underlying problem is already
+  # resolved (e.g. the volume was already manually cleaned up, or a previous
+  # watchdog run already fixed it) -- confirmed live: describe-volumes on an
+  # already-deleted volume returns InvalidVolume.NotFound (exit 254), which
+  # would otherwise kill the whole script here under set -e.
+  if ! DESCRIBE_OUT=$(aws ec2 describe-volumes --volume-ids "$VOL_ID" --query 'Volumes[0].Attachments[0].InstanceId' --output text 2>&1); then
+    if echo "$DESCRIBE_OUT" | grep -q "InvalidVolume.NotFound"; then
+      echo "  Volume ${VOL_ID} no longer exists (already cleaned up). Nothing to do."
+      continue
+    fi
+    echo "  Unexpected error describing ${VOL_ID}: ${DESCRIBE_OUT}"
+    continue
+  fi
+  INSTANCE_ID="$DESCRIBE_OUT"
 
   if [ -z "$INSTANCE_ID" ] || [ "$INSTANCE_ID" = "None" ]; then
     echo "  Volume ${VOL_ID} is not currently attached anywhere. Nothing to do."
