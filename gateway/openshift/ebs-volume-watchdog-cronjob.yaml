@@ -1,0 +1,118 @@
+# ebs-volume-watchdog CronJob -- self-heals the stuck-EBS-attachment failure
+# mode from the 2026-10-13 incident (see 04-LEARNINGS.md): a node holding
+# keycloak-postgres's PVC dies, and the EBS volume stays attached to the dead
+# EC2 instance at the AWS API level (VolumeInUse), which Kubernetes alone
+# cannot fix -- the original incident required abandoning the PVC and losing
+# Keycloak's realm data, then manually re-running configure-keycloak.sh and
+# re-syncing secrets cross-cluster. This CronJob calls ec2:DetachVolume
+# directly instead, preserving the data and needing no human intervention.
+#
+# Prerequisites (not applied by this manifest):
+#   1. A minimally-scoped IAM user with ONLY ec2:DescribeVolumes,
+#      ec2:DescribeInstances, ec2:DescribeInstanceStatus, ec2:DetachVolume
+#      (see gateway/scripts/ebs-volume-watchdog.sh's header comment for the
+#      policy) -- do NOT use admin/broad credentials here, this runs
+#      unattended every 2 minutes.
+#   2. The resulting access key stored as:
+#        oc create secret generic ebs-watchdog-aws-creds -n otel25-gateway \
+#          --from-literal=AWS_ACCESS_KEY_ID=<key> \
+#          --from-literal=AWS_SECRET_ACCESS_KEY=<secret> \
+#          --from-literal=AWS_DEFAULT_REGION=<region>
+#   3. The script ConfigMap:
+#        oc create configmap ebs-volume-watchdog-script \
+#          --from-file=gateway/scripts/ebs-volume-watchdog.sh \
+#          -n otel25-gateway --dry-run=client -o yaml | oc apply -f -
+#
+# Apply this file with: oc apply -f gateway/openshift/ebs-volume-watchdog-cronjob.yaml
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ebs-volume-watchdog
+  namespace: otel25-gateway
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ebs-volume-watchdog
+  namespace: otel25-gateway
+rules:
+- apiGroups: [""]
+  resources: ["events"]
+  verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ebs-volume-watchdog
+  namespace: otel25-gateway
+subjects:
+- kind: ServiceAccount
+  name: ebs-volume-watchdog
+  namespace: otel25-gateway
+roleRef:
+  kind: Role
+  name: ebs-volume-watchdog
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ebs-volume-watchdog
+  namespace: otel25-gateway
+  labels:
+    app: ebs-volume-watchdog
+spec:
+  schedule: "*/2 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 5
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 60
+      backoffLimit: 1
+      template:
+        metadata:
+          labels:
+            app: ebs-volume-watchdog
+        spec:
+          serviceAccountName: ebs-volume-watchdog
+          restartPolicy: Never
+          containers:
+          - name: watchdog
+            image: amazon/aws-cli:2.17.62
+            command: ["/bin/bash", "/scripts/ebs-volume-watchdog.sh"]
+            env:
+            - name: WATCHDOG_NAMESPACE
+              value: otel25-gateway
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: ebs-watchdog-aws-creds
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ebs-watchdog-aws-creds
+                  key: AWS_SECRET_ACCESS_KEY
+            - name: AWS_DEFAULT_REGION
+              valueFrom:
+                secretKeyRef:
+                  name: ebs-watchdog-aws-creds
+                  key: AWS_DEFAULT_REGION
+            resources:
+              requests:
+                cpu: 50m
+                memory: 64Mi
+              limits:
+                cpu: 200m
+                memory: 128Mi
+            volumeMounts:
+            - name: script
+              mountPath: /scripts
+              readOnly: true
+          volumes:
+          - name: script
+            configMap:
+              name: ebs-volume-watchdog-script
+              defaultMode: 0555
