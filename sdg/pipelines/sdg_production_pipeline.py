@@ -257,8 +257,22 @@ def _wire_env(task: dsl.PipelineTask) -> dsl.PipelineTask:
     ),
 )
 def sdg_production_pipeline(
-    gateway_url: str = "https://mcp.apps.cluster-wfhjs.wfhjs.sandbox1330.opentlc.com/mcp",
-    keycloak_url: str = "https://mcp-keycloak-otel25-gateway.apps.cluster-wfhjs.wfhjs.sandbox1330.opentlc.com",
+    # 2026-10-12: cut over from sandbox1330 to sandbox3435 -- sandbox1330's
+    # single control-plane node has chronic kube-apiserver/etcd instability
+    # (62/52 restarts over 12 days, unrelated to this project's workload)
+    # that repeatedly took the whole cluster unreachable mid-run. sandbox3435
+    # is a proper 3-node cluster with a verified-working 84-tool gateway
+    # (matching sandbox1330's healthy baseline), but two known gaps remain
+    # there as of this cutover: the gateway's own session-init path 4xxs
+    # specifically for the udr and nwdaf MCP servers (registration/listing
+    # works fine, direct backend calls work fine -- narrower than a backend
+    # issue, not yet root-caused), and Containerlab's SSH reachability for
+    # telecom's 2 interface-detail tools is unconfirmed. Switch back to
+    # sandbox1330 once its control-plane issue is resolved, or fix the
+    # udr/nwdaf gateway gap and revert this if sandbox3435 becomes the
+    # long-term home.
+    gateway_url: str = "https://mcp.apps.cluster-hfbp7.hfbp7.sandbox3435.opentlc.com/mcp",
+    keycloak_url: str = "https://mcp-keycloak-otel25-gateway.apps.cluster-hfbp7.hfbp7.sandbox3435.opentlc.com",
     client_id: str = "sdg-pipeline",
 ):
     tier_tasks: dict[str, dsl.PipelineTask] = {}
