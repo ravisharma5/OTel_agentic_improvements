@@ -122,6 +122,16 @@ def generate_tier(
             "--gateway-url", gateway_url,
             "--keycloak-url", keycloak_url,
             "--client-id", client_id,
+            # 2026-10-13: per-seed-chunk checkpointing, see sdg_checkpoints
+            # PVC mount in sdg_production_pipeline() below and run-generation.py's
+            # --checkpoint-dir docstring. A static path works even though
+            # 5 different tiers share this mount: each task only ever runs
+            # ONE tier (--tiers tier above), and run-generation.py's
+            # _run_generation() already scopes its checkpoint writes under
+            # f"{checkpoint_dir}/{tier_name}/attempt_{attempt}" internally --
+            # no need to build a per-tier path here with KFP placeholder
+            # string concatenation.
+            "--checkpoint-dir", "/checkpoints",
         ],
     )
 
@@ -304,6 +314,13 @@ def sdg_production_pipeline(
         t.set_caching_options(True)
         t.set_cpu_request("250m").set_cpu_limit("1").set_memory_request("512Mi").set_memory_limit("1Gi")
         _wire_env(t)
+        # 2026-10-13: mount the checkpoint PVC (sdg/openshift/sdg-checkpoints-pvc.yaml,
+        # applied separately -- not created by this pipeline) so run-generation.py's
+        # --checkpoint-dir survives a pod restart. A single RWO PVC is safe to
+        # share across all 5 sequential tier tasks: they're chained via .after()
+        # below, so KFP never has two of these pods running (and therefore
+        # mounting this PVC) at the same time.
+        kubernetes.mount_pvc(t, pvc_name="sdg-checkpoints", mount_path="/checkpoints")
         # Sequential on purpose -- see module docstring. Each tier has no
         # data dependency on the previous one; .after() is a pure ordering
         # constraint so all 5 don't hit the shared vLLM/Langflow backend

@@ -1,0 +1,28 @@
+# PVC for sdg_hub's per-seed-chunk checkpointing (sdg/scripts/run-generation.py's
+# --checkpoint-dir), mounted into every generate_tier KFP task at /checkpoints.
+#
+# Needed because KFP tasks run in ephemeral pods with no persistent storage by
+# default -- a resubmitted run after a crash gets a fresh pod with fresh
+# ephemeral storage, so local-only checkpoint files would be lost along with
+# everything else. This PVC is the one thing that needs to survive across a
+# tier's retry/resubmit for --checkpoint-dir to actually help.
+#
+# A single ReadWriteOnce PVC is fine here (unlike Keycloak's Postgres, this
+# isn't a long-lived stateful service pinned to one node) -- sdg_production_pipeline.py's
+# 5 generate_tier tasks already run sequentially via .after() chaining, not in
+# parallel, and KFP tears down each task's pod before the next one starts, so
+# there's never more than one pod needing to mount this at a time.
+#
+# Apply this file with: oc apply -f sdg/openshift/sdg-checkpoints-pvc.yaml
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: sdg-checkpoints
+  namespace: otel25-sdg
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 5Gi
+  storageClassName: gp3-csi

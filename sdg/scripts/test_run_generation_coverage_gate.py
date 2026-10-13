@@ -53,13 +53,24 @@ def _row(scenario: str, tools_called: list[str]) -> dict:
 
 class _FakeFlow:
     """Minimal stand-in for sdg_hub's Flow, driven by a scripted sequence of
-    either a list of output rows or an exception to raise, one per call."""
+    either a list of output rows or an exception to raise, one per call.
+
+    Records checkpoint_dir/save_freq per call (call_kwargs) so tests can
+    verify _run_generation scopes checkpointing per (tier, attempt) rather
+    than sharing one directory across the tool-coverage retry loop's
+    attempts -- see the comment at _run_generation's _generate_once() call
+    site for why a shared directory would be a correctness bug, not just an
+    inefficiency.
+    """
 
     def __init__(self, outcomes: list):
         self._outcomes = list(outcomes)
         self.calls = 0
+        self.call_kwargs: list[dict] = []
 
-    def generate(self, dataset=None, runtime_params=None, max_concurrency=None):
+    def generate(self, dataset=None, runtime_params=None, max_concurrency=None,
+                 checkpoint_dir=None, save_freq=None):
+        self.call_kwargs.append({"checkpoint_dir": checkpoint_dir, "save_freq": save_freq})
         outcome = self._outcomes[self.calls]
         self.calls += 1
         if isinstance(outcome, Exception):
@@ -126,3 +137,54 @@ def test_empty_dataset_error_on_every_attempt_lands_in_coverage_failed(monkeypat
 
     assert fake_flow.calls == 3
     assert results == []
+
+
+def test_checkpoint_dir_is_scoped_per_attempt_not_shared(monkeypatch, tmp_path):
+    """checkpoint_dir passed to flow.generate() must differ between attempts
+    within the same tier, and must be None/disabled when the caller doesn't
+    opt in. A shared directory across attempts would let sdg_hub's
+    content-based resume matching incorrectly treat attempt 2's resampled
+    seeds as already-completed from attempt 1's (inadequate) trajectory."""
+    seed = _seed("single_check_alarms")
+    fake_flow = _FakeFlow([
+        run_generation.EmptyDatasetError("filter_incomplete_responses"),
+        [_row("single_check_alarms", ["toolA"])],
+    ])
+    monkeypatch.setattr(run_generation.Flow, "from_yaml", lambda path: fake_flow)
+
+    checkpoint_base = tmp_path / "checkpoints"
+    results = run_generation._run_generation(
+        config={"model_config": {}, "agent_config": {}, "runtime_params": {}},
+        seeds=[seed],
+        output_dir=tmp_path / "out",
+        tier_name="single_tool",
+        checkpoint_dir=checkpoint_base,
+        checkpoint_save_freq=1,
+    )
+
+    assert len(results) == 1
+    assert fake_flow.calls == 2
+    attempt_1_dir = fake_flow.call_kwargs[0]["checkpoint_dir"]
+    attempt_2_dir = fake_flow.call_kwargs[1]["checkpoint_dir"]
+    assert attempt_1_dir is not None and attempt_2_dir is not None
+    assert attempt_1_dir != attempt_2_dir
+    assert str(checkpoint_base / "single_tool" / "attempt_1") == attempt_1_dir
+    assert str(checkpoint_base / "single_tool" / "attempt_2") == attempt_2_dir
+    assert fake_flow.call_kwargs[0]["save_freq"] == 1
+
+
+def test_checkpoint_dir_disabled_when_not_passed(monkeypatch, tmp_path):
+    """Default behavior (no --checkpoint-dir) must be unchanged: None passed
+    through to flow.generate(), matching pre-checkpointing behavior exactly."""
+    seed = _seed("single_check_alarms")
+    fake_flow = _FakeFlow([[_row("single_check_alarms", ["toolA"])]])
+    monkeypatch.setattr(run_generation.Flow, "from_yaml", lambda path: fake_flow)
+
+    run_generation._run_generation(
+        config={"model_config": {}, "agent_config": {}, "runtime_params": {}},
+        seeds=[seed],
+        output_dir=tmp_path,
+        tier_name="single_tool",
+    )
+
+    assert fake_flow.call_kwargs[0] == {"checkpoint_dir": None, "save_freq": None}

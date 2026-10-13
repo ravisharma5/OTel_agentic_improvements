@@ -333,7 +333,14 @@ def _load_seed_dataframe(seeds_path: Path, tiers: list[str] | None = None):
 GENERATION_MAX_CONCURRENCY = 8
 
 
-def _generate_once(flow, seeds: list[dict], runtime_params: dict, max_concurrency: int) -> list[dict]:
+def _generate_once(
+    flow,
+    seeds: list[dict],
+    runtime_params: dict,
+    max_concurrency: int,
+    checkpoint_dir: str | None = None,
+    checkpoint_save_freq: int | None = None,
+) -> list[dict]:
     """Run flow.generate() once over the given seeds, returning output rows as dicts.
 
     sdg_hub's Flow.generate() requires a pandas DataFrame or HF Dataset, not
@@ -341,6 +348,16 @@ def _generate_once(flow, seeds: list[dict], runtime_params: dict, max_concurrenc
     normalization of whatever generate() returns, so callers (including the
     tool-coverage rejection-sampling retry loop in _run_generation) can
     invoke a single attempt without repeating this boilerplate.
+
+    checkpoint_dir/checkpoint_save_freq are passed straight through to
+    sdg_hub's own execute_flow() (verified via source inspection of
+    sdg_hub==0.9.4, not assumed from docs): when set, it chunks `seeds`
+    into groups of checkpoint_save_freq *pre-expansion* seed rows, runs each
+    chunk through every flow block, and saves a checkpoint JSONL after each
+    chunk -- so a crash partway through a tier only loses the in-flight
+    chunk's LLM/agent calls, not the whole tier. See _run_generation's call
+    site for why this needs per-(tier, attempt) scoping, not a single shared
+    directory.
     """
     import pandas as pd
     seed_df = pd.DataFrame(seeds)
@@ -348,6 +365,8 @@ def _generate_once(flow, seeds: list[dict], runtime_params: dict, max_concurrenc
         dataset=seed_df,
         runtime_params=runtime_params,
         max_concurrency=max_concurrency,
+        checkpoint_dir=checkpoint_dir,
+        save_freq=checkpoint_save_freq,
     )
 
     if hasattr(output, "iterrows"):
@@ -368,6 +387,8 @@ def _run_generation(
     output_dir: Path,
     tier_name: str,
     dry_run: bool = False,
+    checkpoint_dir: Path | None = None,
+    checkpoint_save_freq: int = 1,
 ) -> list[dict]:
     """Run the sdg_hub generation flow for a single tier.
 
@@ -377,6 +398,18 @@ def _run_generation(
         output_dir: Directory to write raw output JSONL.
         tier_name: Name of the curriculum tier.
         dry_run: If True, limit to 10 examples.
+        checkpoint_dir: Base directory for sdg_hub's own per-seed-chunk
+            checkpointing (opt-in; None disables it entirely, same as
+            before this was added). Must be on storage that survives a pod
+            restart to be useful -- see sdg_production_pipeline.py's
+            checkpoint PVC. Disabled for dry-run regardless of this value
+            (10-example smoke runs don't benefit, and a stale checkpoint
+            from a prior dry-run could confuse the content-based resume
+            matching).
+        checkpoint_save_freq: Seed rows (pre-multiply_tool_rows expansion)
+            per checkpoint chunk. See module docstring note at the
+            GENERATION_MAX_CONCURRENCY definition for how this composes
+            with the tool-coverage retry loop below.
 
     Returns:
         List of generated example dicts.
@@ -478,8 +511,35 @@ def _run_generation(
         # back up should be safe now that streaming is in place -- but it
         # wasn't re-validated under the tool-coverage gate's extra retry
         # load, so watch early attempts after any change here.
+        #
+        # checkpoint_dir is scoped per (tier, attempt), not shared across
+        # attempts -- 2026-10-13, added after confirming via sdg_hub source
+        # that its resume matching is purely content-based (hashes the
+        # *pre-expansion* seed columns common to old and new input). Attempt
+        # 2+ only re-processes scenarios whose attempt-1 trajectory FAILED
+        # the tool-coverage gate below -- those seeds' pre-expansion columns
+        # are identical to attempt 1's (same scenario, same tool_list), so a
+        # shared checkpoint dir would make attempt 2 incorrectly match and
+        # skip them, silently reusing the inadequate attempt-1 trajectory
+        # instead of actually resampling. Scoping per-attempt means a
+        # crash-and-resubmit mid-tier still gets the full benefit: attempt 1
+        # replays fast from its own checkpoint (already done), correctly
+        # re-derives the same `remaining` set, and attempt 2 resumes from
+        # wherever its own (separate) checkpoint got to.
+        attempt_checkpoint_dir = (
+            str(checkpoint_dir / tier_name / f"attempt_{attempt}")
+            if checkpoint_dir and not dry_run
+            else None
+        )
         try:
-            rows = _generate_once(flow, current_seeds, runtime_params, GENERATION_MAX_CONCURRENCY)
+            rows = _generate_once(
+                flow,
+                current_seeds,
+                runtime_params,
+                GENERATION_MAX_CONCURRENCY,
+                checkpoint_dir=attempt_checkpoint_dir,
+                checkpoint_save_freq=checkpoint_save_freq if attempt_checkpoint_dir else None,
+            )
         except EmptyDatasetError:
             # sdg_hub's own quality filters (question-quality, response-
             # completeness) can legitimately zero out an entire attempt --
@@ -621,6 +681,34 @@ def build_parser() -> argparse.ArgumentParser:
         help="Resume from last checkpoint (uses .generation_manifest.json)",
     )
     parser.add_argument(
+        "--checkpoint-dir",
+        default=os.environ.get("CHECKPOINT_DIR"),
+        help=(
+            "Base directory for sdg_hub's own per-seed-chunk checkpointing "
+            "within a tier (opt-in; omit/unset to disable, same behavior as "
+            "before this flag existed). This is a finer-grained complement "
+            "to --resume's per-TIER manifest, not a replacement -- a crash "
+            "partway through a tier's run_expert_trajectory block only "
+            "loses the in-flight chunk's LLM/agent calls, not the whole "
+            "tier. MUST be on storage that survives a pod restart to be "
+            "useful (e.g. a mounted PVC in KFP, not /tmp) -- see "
+            "sdg_production_pipeline.py's checkpoint PVC."
+        ),
+    )
+    parser.add_argument(
+        "--checkpoint-save-freq",
+        type=int,
+        default=1,
+        help=(
+            "Seed rows (pre-multiply_tool_rows-expansion) per checkpoint "
+            "chunk. Lower = finer-grained resume, more checkpoint file "
+            "writes. Default 1 since per-tier seed counts are small "
+            "(single digits to ~20) -- each one's full expanded trajectory "
+            "set gets checkpointed independently. Only takes effect if "
+            "--checkpoint-dir is set."
+        ),
+    )
+    parser.add_argument(
         "--verbose", "-v",
         action="store_true",
         help="Enable verbose logging",
@@ -709,6 +797,8 @@ def main(argv: list[str] | None = None) -> int:
                 output_dir=output_dir,
                 tier_name=tier_name,
                 dry_run=args.dry_run,
+                checkpoint_dir=Path(args.checkpoint_dir) if args.checkpoint_dir else None,
+                checkpoint_save_freq=args.checkpoint_save_freq,
             )
             count = len(results)
             tier_stats[tier_name] = count
