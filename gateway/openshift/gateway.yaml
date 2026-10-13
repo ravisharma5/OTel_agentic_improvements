@@ -12,7 +12,7 @@ spec:
   gatewayClassName: istio
   listeners:
   - name: mcp
-    hostname: mcp.apps.cluster-wfhjs.wfhjs.sandbox1330.opentlc.com
+    hostname: mcp.${GATEWAY_APPS_DOMAIN}
     port: 8080
     protocol: HTTP
     allowedRoutes:
@@ -35,7 +35,7 @@ metadata:
   name: mcp-gateway
   namespace: otel25-gateway
 spec:
-  host: mcp.apps.cluster-wfhjs.wfhjs.sandbox1330.opentlc.com
+  host: mcp.${GATEWAY_APPS_DOMAIN}
   to:
     kind: Service
     name: mcp-gateway-istio

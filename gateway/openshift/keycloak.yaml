@@ -1,9 +1,29 @@
-# Ephemeral PostgreSQL for Keycloak (WG training pipeline, not production)
+# PostgreSQL for Keycloak (WG training pipeline, not production)
 #
 # The keycloak-db-secret Secret is deliberately NOT defined here with a real value.
 # Create it before applying this manifest with gateway/openshift/create-keycloak-db-secret.sh,
 # which generates a random password and is idempotent (safe to re-run; it will not
 # overwrite an existing secret, so Postgres data isn't orphaned by a password change).
+#
+# 2026-10-13: added a PVC after a live incident on sandbox3435 -- a worker node went
+# NotReady and stranded the (then-ephemeral) single-replica Postgres pod; losing the
+# realm on every such restart required re-running configure-keycloak.sh and re-syncing
+# the sdg-pipeline client secret cross-cluster every time. The realm/clients/secrets now
+# survive a pod reschedule. Postgres remains a single-writer, single-replica component
+# (no HA) -- the PVC only protects against data loss on pod move, not against the pod
+# itself being briefly unavailable during a reschedule.
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: keycloak-postgres-data
+  namespace: otel25-gateway
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 2Gi
+  storageClassName: gp3-csi
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -14,6 +34,9 @@ metadata:
     app: keycloak-postgres
 spec:
   replicas: 1
+  strategy:
+    type: Recreate  # RWO PVC -- a rolling update would deadlock trying to start a
+                     # second pod before the first releases the volume.
   selector:
     matchLabels:
       app: keycloak-postgres
@@ -22,6 +45,18 @@ spec:
       labels:
         app: keycloak-postgres
     spec:
+      # Prefer a control-plane node: in these sandbox clusters, control-plane nodes
+      # have proven more stable than workers (the sandbox3435 incident this guards
+      # against was a worker-node outage). Soft preference, not a hard requirement,
+      # so scheduling still succeeds if the control plane is full.
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            preference:
+              matchExpressions:
+              - key: node-role.kubernetes.io/control-plane
+                operator: Exists
       containers:
       - name: postgres
         image: registry.redhat.io/rhel9/postgresql-16:latest
@@ -40,6 +75,9 @@ spec:
               key: password
         - name: POSTGRESQL_DATABASE
           value: keycloak
+        volumeMounts:
+        - name: data
+          mountPath: /var/lib/pgsql/data
         resources:
           requests:
             cpu: 250m
@@ -47,7 +85,10 @@ spec:
           limits:
             cpu: 500m
             memory: 512Mi
-        # No PVC -- ephemeral storage (data lost on pod restart)
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: keycloak-postgres-data
 ---
 apiVersion: v1
 kind: Service
@@ -65,6 +106,16 @@ spec:
   type: ClusterIP
 ---
 # Keycloak instance for MCP Gateway JWT authentication
+#
+# 2026-10-13: instances raised 1->2 with anti-affinity after a live incident on
+# sandbox3435 -- a worker node went NotReady and stranded the single Keycloak pod
+# (StatefulSet, no failover) in Terminating limbo for hours with zero running
+# replicas, breaking the whole pipeline. RHBK/Keycloak supports multi-instance
+# clustering out of the box (Infinispan-based distributed session cache, peer
+# discovery via the Kubernetes API) against the one shared Postgres backend --
+# no additional config needed beyond instances>1. This does NOT make Postgres
+# itself HA (see keycloak-postgres Deployment above), but it does mean one bad
+# node can no longer take Keycloak itself to zero replicas.
 apiVersion: k8s.keycloak.org/v2alpha1
 kind: Keycloak
 metadata:
@@ -74,7 +125,7 @@ metadata:
     app: keycloak
     purpose: mcp-auth
 spec:
-  instances: 1
+  instances: 2
   db:
     vendor: postgres
     host: keycloak-postgres
@@ -87,8 +138,20 @@ spec:
       name: keycloak-db-secret
       key: password
   hostname:
-    hostname: mcp-keycloak-otel25-gateway.apps.cluster-wfhjs.wfhjs.sandbox1330.opentlc.com
+    hostname: mcp-keycloak-otel25-gateway.${GATEWAY_APPS_DOMAIN}
   http:
     httpEnabled: true
   proxy:
     headers: xforwarded
+  unsupported:
+    podTemplate:
+      spec:
+        affinity:
+          podAntiAffinity:
+            preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: keycloak
+                topologyKey: kubernetes.io/hostname

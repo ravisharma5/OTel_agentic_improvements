@@ -617,3 +617,64 @@ manifest's own comments documented this as required but the script never impleme
 original 3 closed_loop scenarios once it completes. Still open: rebuild `sdg-pipeline:latest` from
 current `sdg/` so a follow-up run can validate the Phase 6 cross-domain closed_loop scenarios too --
 decision on sequencing (let this run finish first vs. rebuild now) not yet made.
+
+## 2026-10-13 -- sandbox3435 worker-node outage stranded single-replica Keycloak; redeploy-readiness fixes made ahead of a new 3-control-plane-node cluster migration
+
+**Incident:** worker node `ip-10-0-26-12` on sandbox3435 went `NotReady` at `07:08:59Z`. `mcp-keycloak-0`
+(RHBK StatefulSet, `instances: 1`, no anti-affinity) was pinned to that node and got stuck in
+`Terminating` limbo -- Kubernetes won't force-finalize a pod when the node's kubelet is unreachable to
+confirm termination, and the StatefulSet controller won't schedule a replacement ordinal-0 pod until the
+old one is confirmed gone. Zero running Keycloak for the rest of the node outage. This broke the
+`mcp-token-refresher` CronJob (Keycloak token requests got router-level `503 Application is not
+available`) and, downstream, Langflow's periodic MCP-tool-list refresh (`Error updating tool list: MCP
+server 'otel25-mcp-gateway' ... failed`), which is what actually surfaced as a pipeline run failure in
+`run_expert_trajectory`. The rest of the gateway stack (mcp-gateway, mcp-gateway-istio,
+mcp-gateway-controller, rhbk-operator -- all Deployments, not StatefulSets) had already self-healed onto
+healthy nodes hours earlier from an *earlier*, unnoticed instance of the same node's flakiness; only
+Keycloak lacked any failover path.
+
+**Fix applied live (sandbox3435, not committed -- cluster-specific state):** force-deleted the stranded
+pod (`--grace-period=0 --force`), re-ran `configure-keycloak.sh` to recreate the wiped realm/clients,
+re-synced the regenerated `sdg-pipeline` client secret to sandbox2667's `keycloak-client-secret-sdg-pipeline`
+Secret, triggered a manual `mcp-token-refresher` Job, verified end-to-end via curl before resubmitting the
+pipeline run.
+
+**Redeploy-readiness fixes made and committed** (ahead of migrating off sandbox3435 to a new 3-node
+control-plane cluster the user is bringing up), per audit findings:
+
+1. **Hostname parameterization**: `gateway/openshift/{keycloak,gateway,auth-policy}.yaml` had sandbox1330's
+   hostname hardcoded even after the live sandbox3435 cutover -- that live fix was never committed, so the
+   *next* migration would have repeated the same manual find/replace blind. All 3 now use a
+   `${GATEWAY_APPS_DOMAIN}` placeholder, substituted via the new `gateway/openshift/deploy-core.sh`
+   (auto-detects the domain via `oc get ingresses.config.openshift.io cluster`, or accepts an explicit
+   override).
+2. **Keycloak Postgres PVC**: `keycloak-postgres` Deployment in `keycloak.yaml` was ephemeral storage by
+   design comment ("data lost on pod restart") -- this is exactly why every node/pod restart required
+   re-running `configure-keycloak.sh` and re-syncing secrets cross-cluster. Added a 2Gi RWO PVC
+   (`keycloak-postgres-data`), `strategy: Recreate` (required for RWO), and a soft node-affinity preference
+   for control-plane nodes.
+3. **Keycloak failover**: `mcp-keycloak` Keycloak CR raised `instances: 1 -> 2` with pod anti-affinity
+   (`app: keycloak`, confirmed as the actual operator-applied pod label via live inspection) so one bad
+   node can no longer take Keycloak to zero replicas. RHBK supports multi-instance clustering
+   out-of-the-box (Infinispan-based session replication, Kubernetes-API peer discovery) against the single
+   shared Postgres backend -- no extra config needed. Postgres itself remains single-writer/single-replica
+   by design; the PVC protects data on reschedule but doesn't make Postgres itself HA.
+
+**Still open, deliberately deferred** (user's explicit call, 2026-10-13: "UDR/NWDAF we can ignore for now
+but keep a track of this issue"): gateway-mediated UDR and NWDAF MCP calls return 4xx even though direct
+backend reachability has been confirmed working (this is distinct from the h2c/base-path backend bugs
+fixed in the entry above, which were already resolved). `gateway/openshift/mcpsr-udr.yaml` and
+`mcpsr-nwdaf.yaml` are structurally identical to the working registrations -- no distinguishing config
+found, root cause not yet identified. Re-verify against the new cluster once it's up; don't assume a fresh
+cluster fixes this on its own, since it looks gateway/auth-layer-specific rather than node/cluster-health
+related.
+
+**Still open, needs sandbox1330** (if it's brought back up before being retired): the `nextgcore-builder`
+and `nextgcore-runtime` BuildConfigs (Docker strategy, 8 CPU/16Gi and 2 CPU/4Gi respectively, per
+`01-04-SUMMARY.md`) were created live via `oc new-build`-equivalent commands that were never captured as
+committed YAML -- only `backends/openshift/nextgcore/Dockerfile.runtime` (the second stage) is in the
+repo. The first stage (`nextgcore-builder`, compiling NextGCore from `github.com/NextgCoreLab/nextgcore.git`,
+`docker/rust/Dockerfile.builder`, ~18 min build) has no committed BuildConfig at all. Exporting the live
+`BuildConfig`/`ImageStream` objects from sandbox1330 (`oc get buildconfig,imagestream -n otel25-backends -o yaml`)
+and committing scrubbed versions is safer than reconstructing from docs blind, given the cost of a wrong
+guess (git ref, build resources) on an 18-minute compile.

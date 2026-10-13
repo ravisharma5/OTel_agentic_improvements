@@ -21,7 +21,7 @@ spec:
       authentication:
         jwt-auth:
           jwt:
-            issuerUrl: https://mcp-keycloak-otel25-gateway.apps.cluster-wfhjs.wfhjs.sandbox1330.opentlc.com/realms/mcp
+            issuerUrl: https://mcp-keycloak-otel25-gateway.${GATEWAY_APPS_DOMAIN}/realms/mcp
       response:
         unauthenticated:
           body:
