@@ -257,22 +257,25 @@ def _wire_env(task: dsl.PipelineTask) -> dsl.PipelineTask:
     ),
 )
 def sdg_production_pipeline(
-    # 2026-10-12: cut over from sandbox1330 to sandbox3435 -- sandbox1330's
-    # single control-plane node has chronic kube-apiserver/etcd instability
-    # (62/52 restarts over 12 days, unrelated to this project's workload)
-    # that repeatedly took the whole cluster unreachable mid-run. sandbox3435
-    # is a proper 3-node cluster with a verified-working 84-tool gateway
-    # (matching sandbox1330's healthy baseline), but two known gaps remain
-    # there as of this cutover: the gateway's own session-init path 4xxs
-    # specifically for the udr and nwdaf MCP servers (registration/listing
-    # works fine, direct backend calls work fine -- narrower than a backend
-    # issue, not yet root-caused), and Containerlab's SSH reachability for
-    # telecom's 2 interface-detail tools is unconfirmed. Switch back to
-    # sandbox1330 once its control-plane issue is resolved, or fix the
-    # udr/nwdaf gateway gap and revert this if sandbox3435 becomes the
-    # long-term home.
-    gateway_url: str = "https://mcp.apps.cluster-hfbp7.hfbp7.sandbox3435.opentlc.com/mcp",
-    keycloak_url: str = "https://mcp-keycloak-otel25-gateway.apps.cluster-hfbp7.hfbp7.sandbox3435.opentlc.com",
+    # 2026-10-13: cut over from sandbox3435 to sandbox4001 -- sandbox3435's
+    # API server became completely unreachable mid-run (TLS handshake
+    # timeouts, sustained across repeated attempts, not a blip), on top of a
+    # worker node that had already been permanently NotReady for a day. This
+    # is the same failure class that forced the earlier sandbox1330 ->
+    # sandbox3435 cutover. sandbox4001 is a proper 5-node cluster (3
+    # control-plane, HA) stood up specifically as a standby for this
+    # scenario and fully verified before this switch: 84-tool gateway
+    # (matching the known-healthy baseline), 2-instance HA Keycloak with a
+    # Postgres PVC, all 8 domain MCP servers + 8 Prism mocks running, full
+    # 9-NF NextGCore stack with NWDAF verified live, and Containerlab SSH
+    # reachability confirmed working for the first time on any cluster this
+    # project has used. The udr/nwdaf gateway-mediated 4xx gap from
+    # sandbox3435 is NOT yet re-verified as fixed or still-present here --
+    # see .planning/phases/04-sdg-pipeline-and-dataset-production/
+    # 04-LEARNINGS.md. Previous history: sandbox1330 was retired for chronic
+    # kube-apiserver/etcd instability on its single control-plane node.
+    gateway_url: str = "https://mcp.apps.cluster-vrwj7.vrwj7.sandbox4001.opentlc.com/mcp",
+    keycloak_url: str = "https://mcp-keycloak-otel25-gateway.apps.cluster-vrwj7.vrwj7.sandbox4001.opentlc.com",
     client_id: str = "sdg-pipeline",
 ):
     tier_tasks: dict[str, dsl.PipelineTask] = {}

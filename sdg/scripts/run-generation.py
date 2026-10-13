@@ -321,7 +321,16 @@ def _load_seed_dataframe(seeds_path: Path, tiers: list[str] | None = None):
 # successfully around the failure. 4 is the last value proven to run
 # error-free through explore_server/generate_questions/early
 # run_expert_trajectory rows before 8 was tried.
-GENERATION_MAX_CONCURRENCY = 4
+#
+# 2026-10-13: raised back to 8, paired this time with LANGFLOW_NUM_WORKERS
+# 4 -> 8 (and a matching resource bump to requests cpu=4/memory=8Gi, limits
+# cpu=8/memory=12Gi) on the langflow-service StatefulSet -- the single-worker
+# process was the actual bottleneck the first time this was tried, not
+# Langflow generally, and that bottleneck is gone now that the process count
+# matches the request concurrency. Also raised request-level timeout to
+# 300s (flow-training.yaml) since the earlier revert. Watch the first tier
+# for a repeat of the same failure mode before trusting this long-term.
+GENERATION_MAX_CONCURRENCY = 8
 
 
 def _generate_once(flow, seeds: list[dict], runtime_params: dict, max_concurrency: int) -> list[dict]:
