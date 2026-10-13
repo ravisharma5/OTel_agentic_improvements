@@ -1,0 +1,103 @@
+# NextGCore two-stage image build (BuildConfig + ImageStream pairs).
+#
+# 2026-10-13: reconstructed from the live objects on sandbox1330 right before
+# that cluster was deleted. The original nextgcore-builder BuildConfig had
+# `source.type: Binary` (built via `oc start-build --from-dir=<local clone>`),
+# which retains zero provenance in the BuildConfig itself -- the git source
+# was only ever recorded in .planning/phases/01-backend-infrastructure/
+# 01-02-PLAN.md, not in any applyable manifest.
+#
+# Tried converting this to a Git-sourced BuildConfig first (simpler, no local
+# clone step) -- live-tested on sandbox1330 and it failed: docker/rust/
+# Dockerfile.builder does `COPY nextgcore/src ...` AND `COPY nextgsim ...`,
+# i.e. it builds NextGCore and its companion nextgsim simulator together from
+# two sibling directories in the build context. OpenShift's Git source clones
+# exactly one repo as the context root, so it can never produce that layout.
+# Kept as Binary source (matching the original) -- deploy-build.sh now scripts
+# the directory prep (cloning both repos into the sibling layout the
+# Dockerfile expects) that was previously an undocumented manual step.
+#
+# Deploy order: apply this file, then run deploy-build.sh.
+---
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: nextgcore-builder
+  namespace: otel25-backends
+---
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: nextgcore-runtime
+  namespace: otel25-backends
+---
+# Stage 1: compile all NextGCore NF binaries from source (~18 min, confirmed
+# live on sandbox1330, 2026-10-02).
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: nextgcore-builder
+  namespace: otel25-backends
+  labels:
+    build: nextgcore-builder
+spec:
+  runPolicy: Serial
+  successfulBuildsHistoryLimit: 5
+  failedBuildsHistoryLimit: 5
+  source:
+    type: Binary
+  strategy:
+    type: Docker
+    dockerStrategy:
+      # Relative to the binary upload's context root, which deploy-build.sh
+      # prepares as a temp dir containing both `nextgcore/` and `nextgsim/`
+      # clones side by side (see Dockerfile.builder's COPY commands upstream).
+      dockerfilePath: nextgcore/docker/rust/Dockerfile.builder
+      from:
+        kind: DockerImage
+        name: docker.io/library/rust:1.95.0-bookworm
+  output:
+    to:
+      kind: ImageStreamTag
+      name: nextgcore-builder:latest
+  resources:
+    requests:
+      cpu: "4"
+      memory: 8Gi
+    limits:
+      cpu: "8"
+      memory: 16Gi
+---
+# Stage 2: runtime image with all NF binaries + runtime deps (~1 min).
+# Binary build -- see deploy-build.sh for the start-build command. Depends on
+# nextgcore-builder:latest existing already (Dockerfile.runtime's FROM line).
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: nextgcore-runtime
+  namespace: otel25-backends
+spec:
+  runPolicy: Serial
+  successfulBuildsHistoryLimit: 5
+  failedBuildsHistoryLimit: 5
+  source:
+    type: Binary
+  strategy:
+    type: Docker
+    dockerStrategy:
+      # Required: a single `--from-file` upload keeps its original name in the
+      # build context (confirmed live -- it is NOT renamed to `Dockerfile`),
+      # so the Docker strategy needs an explicit path or it looks for a file
+      # literally named `Dockerfile` and fails with "no such file or directory".
+      dockerfilePath: Dockerfile.runtime
+  output:
+    to:
+      kind: ImageStreamTag
+      name: nextgcore-runtime:latest
+  resources:
+    requests:
+      cpu: "1"
+      memory: 2Gi
+    limits:
+      cpu: "2"
+      memory: 4Gi
