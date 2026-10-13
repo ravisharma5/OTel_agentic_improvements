@@ -72,6 +72,14 @@ agent_config:
   agent_framework: langflow
   agent_url: "${LANGFLOW_URL:-http://langflow.rhoai-sdg.svc:7860/api/v1/run/default}"
   agent_api_key: "${LANGFLOW_API_KEY}"
+  # 2026-10-13: raised from sdg_hub's default (120.0) after a real
+  # run_expert_trajectory failure on sandbox3435 -- confirmed live that slow
+  # rows (112s, 128s) were NOT hangs, they completed successfully, just past
+  # what a 120s client timeout tolerates. Not yet confirmed whether the slow
+  # rows correlate with the known nwdaf/udr gateway session-init gap or are
+  # general latency variance; 300s gives real margin either way without
+  # masking an actual infinite hang (which would still time out, just later).
+  timeout: 300.0
 
 # ─── Runtime Parameters ─────────────────────────────────────────────────────
 # These override the flow's default block parameters for volume and diversity.
