@@ -79,34 +79,79 @@ spec:
           cpu: "2"
           memory: 4Gi
   definition:
-    containerlab: "# Containerlab topology for MCP-Telecom basic 3-node Nokia SRL\
-      \ ring\n# Generated from ContainerlabManager.generate_test_scenario(\"basic\"\
-      ), then hand-corrected\n# after live deployment testing against Clabernetes\
-      \ 0.6.0 / containerlab 0.74.3 (2026-10-05):\n#\n#   1. Removed `startup-config:\
-      \ configs/r*.cfg` -- these files were never generated\n#      anywhere in the\
-      \ repo; containerlab failed trying to load a nonexistent file.\n#      Nokia\
-      \ SR Linux boots fine with factory-default config without one.\n#   2. Renamed\
-      \ link endpoints from generic `eth1`/`eth2` to Nokia SR Linux's native\n#  \
-      \    `e1-1`/`e1-2` format. containerlab 0.74.3 does NOT auto-translate generic\n\
-      #      ethN names for the nokia_srlinux kind -- it requires the native\n#  \
-      \    ethernet-L/P (or eL-P) pattern directly and errors otherwise. This is a\n\
-      #      pre-existing limitation of containerlab.py's generic `_next_eth()` helper\n\
-      #      (mcp/mcp-telecom/src/mcp_telecom/containerlab.py:60-63), which emits\
-      \ plain\n#      `ethN` for every vendor kind -- not something introduced by\
-      \ this change.\n#      Future scenarios using nokia_srlinux should account for\
-      \ this until/unless\n#      `_next_eth()` is made kind-aware.\n#\n# Deploy:\n\
-      #   sudo containerlab deploy -t containerlab-topology.yaml\n#\n# Clabernetes\
-      \ on OpenShift (verified working 2026-10-05, namespace c9s):\n#   oc apply -f\
-      \ <Topology CR wrapping this file's content under spec.definition.containerlab>\n\
-      #   (clabverter was unavailable in the deployment environment; the Topology\
-      \ CR's\n#   spec.definition.containerlab field accepts this raw containerlab\
-      \ YAML directly,\n#   so clabverter is not strictly required -- see clabernetes.containerlab.dev/v1alpha1\
-      \ CRD)\n#\n# Nodes: r1, r2, r3 (Nokia SR Linux) in a ring topology\n# Management\
-      \ subnet: 172.20.20.0/24\n#   r1 -> 172.20.20.2\n#   r2 -> 172.20.20.3\n#  \
-      \ r3 -> 172.20.20.4\n\nname: mcp-telecom-basic\nmgmt:\n  network: clab\n  ipv4-subnet:\
-      \ 172.20.20.0/24\ntopology:\n  nodes:\n    r1:\n      kind: nokia_srlinux\n\
-      \      image: ghcr.io/nokia/srlinux:latest\n    r2:\n      kind: nokia_srlinux\n\
-      \      image: ghcr.io/nokia/srlinux:latest\n    r3:\n      kind: nokia_srlinux\n\
-      \      image: ghcr.io/nokia/srlinux:latest\n  links:\n  - endpoints:\n    -\
-      \ r1:e1-1\n    - r2:e1-1\n  - endpoints:\n    - r2:e1-2\n    - r3:e1-1\n  -\
-      \ endpoints:\n    - r3:e1-2\n    - r1:e1-2\n"
+    containerlab: |
+      # Containerlab topology for MCP-Telecom basic 3-node Nokia SRL ring
+      # Generated from ContainerlabManager.generate_test_scenario("basic"), then hand-corrected
+      # after live deployment testing against Clabernetes 0.6.0 / containerlab 0.74.3 (2026-10-05):
+      #
+      #   1. Removed `startup-config: configs/r*.cfg` -- these files were never generated
+      #      anywhere in the repo; containerlab failed trying to load a nonexistent file.
+      #      Nokia SR Linux boots fine with factory-default config without one.
+      #   2. Renamed link endpoints from generic `eth1`/`eth2` to Nokia SR Linux's native
+      #      `e1-1`/`e1-2` format. containerlab 0.74.3 does NOT auto-translate generic
+      #      ethN names for the nokia_srlinux kind -- it requires the native
+      #      ethernet-L/P (or eL-P) pattern directly and errors otherwise. This is a
+      #      pre-existing limitation of containerlab.py's generic `_next_eth()` helper
+      #      (mcp/mcp-telecom/src/mcp_telecom/containerlab.py:60-63), which emits plain
+      #      `ethN` for every vendor kind -- not something introduced by this change.
+      #      Future scenarios using nokia_srlinux should account for this until/unless
+      #      `_next_eth()` is made kind-aware.
+      #   3. 2026-10-14: added per-node `memory`/`cpu`. spec.deployment.resources above
+      #      only constrains the OUTER launcher pod (dockerd/containerd/clabernetes
+      #      overhead) -- confirmed live via the real host cgroups that the actual
+      #      nokia_srlinux container Docker-in-Docker spawns lives in its own top-level
+      #      cgroup (/sys/fs/cgroup/docker/<id>, a sibling of kubepods.slice, not a
+      #      child of it), entirely outside Kubernetes' resource accounting. That's why
+      #      r1/r2/r3 could leak to 25-44GB RSS and kill a node even with the outer pod
+      #      limit correctly enforced -- it was protecting the wrong cgroup the whole
+      #      time. containerlab's own per-node `memory`/`cpu` fields (confirmed present
+      #      in this image's binary: `yaml:"memory,omitempty"`/`yaml:"cpu,omitempty"`)
+      #      pass straight through to the inner `docker create`'s HostConfig, which is
+      #      the only thing that actually constrains this container's real cgroup.
+      #
+      # Deploy:
+      #   sudo containerlab deploy -t containerlab-topology.yaml
+      #
+      # Clabernetes on OpenShift (verified working 2026-10-05, namespace c9s):
+      #   oc apply -f <Topology CR wrapping this file's content under spec.definition.containerlab>
+      #   (clabverter was unavailable in the deployment environment; the Topology CR's
+      #   spec.definition.containerlab field accepts this raw containerlab YAML directly,
+      #   so clabverter is not strictly required -- see clabernetes.containerlab.dev/v1alpha1 CRD)
+      #
+      # Nodes: r1, r2, r3 (Nokia SR Linux) in a ring topology
+      # Management subnet: 172.20.20.0/24
+      #   r1 -> 172.20.20.2
+      #   r2 -> 172.20.20.3
+      #   r3 -> 172.20.20.4
+
+      name: mcp-telecom-basic
+      mgmt:
+        network: clab
+        ipv4-subnet: 172.20.20.0/24
+      topology:
+        nodes:
+          r1:
+            kind: nokia_srlinux
+            image: ghcr.io/nokia/srlinux:latest
+            memory: 3gb
+            cpu: 2
+          r2:
+            kind: nokia_srlinux
+            image: ghcr.io/nokia/srlinux:latest
+            memory: 3gb
+            cpu: 2
+          r3:
+            kind: nokia_srlinux
+            image: ghcr.io/nokia/srlinux:latest
+            memory: 3gb
+            cpu: 2
+        links:
+        - endpoints:
+          - r1:e1-1
+          - r2:e1-1
+        - endpoints:
+          - r2:e1-2
+          - r3:e1-1
+        - endpoints:
+          - r3:e1-2
+          - r1:e1-2
