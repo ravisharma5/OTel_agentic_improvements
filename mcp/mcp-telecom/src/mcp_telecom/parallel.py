@@ -152,29 +152,49 @@ class ParallelExecutor:
         command: str,
         devices: list[str] | None = None,
         max_workers: int = 10,
-    ) -> dict[str, str]:
-        """Run a raw CLI command on all or selected devices in parallel."""
+    ) -> dict[str, DeviceResult]:
+        """Run a raw CLI command on all or selected devices in parallel.
+
+        2026-10-14: returns DeviceResult (not str) per device -- this is what
+        format_parallel_results() actually requires (it reads .success/.error/
+        .elapsed_ms off each value), and the two tool functions in server.py
+        that call this (parallel_command/parallel_operation) always pass the
+        result straight into format_parallel_results(). The previous
+        dict[str, str] return caused a deterministic `AttributeError: 'str'
+        object has no attribute 'success'` on every single call -- confirmed
+        live, 213 occurrences over 9+ hours, root-caused to this type
+        mismatch while investigating a real memory leak on sandbox4001 (every
+        failed call still opened fresh SSH sessions to each device via
+        validate_command's pre-check path that it never got a chance to
+        clean up, since the crash happened after the device calls completed).
+        No other callers depend on the old dict[str, str] shape (confirmed via
+        repo-wide grep) so this is a safe direct fix, not a new parallel
+        method.
+        """
         targets = self._resolve_devices(devices)
         err = validate_command(command)
         if err is not None:
-            return {name: err for name in targets}
+            now_ms = 0.0
+            return {
+                name: DeviceResult(device=name, output="", success=False, elapsed_ms=now_ms, error=err)
+                for name in targets
+            }
 
-        detailed = self._execute_parallel(targets, command.strip(), max_workers)
-        return {
-            name: (r.output if r.success else (r.error or "Unknown error"))
-            for name, r in detailed.items()
-        }
+        return self._execute_parallel(targets, command.strip(), max_workers)
 
     def run_operation_on_all(
         self,
         operation: str,
         devices: list[str] | None = None,
         max_workers: int = 10,
-    ) -> dict[str, str]:
-        """Run a vendor-mapped operation on each device (command resolved per vendor)."""
+    ) -> dict[str, DeviceResult]:
+        """Run a vendor-mapped operation on each device (command resolved per vendor).
+
+        See run_on_all's docstring for why this returns DeviceResult, not str.
+        """
         targets = self._resolve_devices(devices)
         cmd_map: dict[str, str] = {}
-        per_device_error: dict[str, str] = {}
+        per_device_error: dict[str, DeviceResult] = {}
 
         for name in targets:
             try:
@@ -182,11 +202,15 @@ class ParallelExecutor:
                 cmd = get_command(cfg.device_type, operation)
                 v_err = validate_command(cmd)
                 if v_err is not None:
-                    per_device_error[name] = v_err
+                    per_device_error[name] = DeviceResult(
+                        device=name, output="", success=False, elapsed_ms=0.0, error=v_err
+                    )
                 else:
                     cmd_map[name] = cmd
             except Exception as e:
-                per_device_error[name] = str(e)
+                per_device_error[name] = DeviceResult(
+                    device=name, output="", success=False, elapsed_ms=0.0, error=str(e)
+                )
 
         if not cmd_map and per_device_error:
             return dict(per_device_error)
@@ -194,9 +218,8 @@ class ParallelExecutor:
             return {}
 
         results_struct = self._execute_parallel(list(cmd_map.keys()), cmd_map, max_workers)
-        out: dict[str, str] = dict(per_device_error)
-        for name, r in results_struct.items():
-            out[name] = r.output if r.success else (r.error or "Unknown error")
+        out: dict[str, DeviceResult] = dict(per_device_error)
+        out.update(results_struct)
         return out
 
     def compare_across_devices(

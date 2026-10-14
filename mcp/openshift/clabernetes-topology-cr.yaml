@@ -37,6 +37,33 @@ metadata:
   name: mcp-telecom-basic
   namespace: c9s
 spec:
+  # 2026-10-14: r1/r2/r3 (Nokia SR Linux, a full commercial network OS, not a
+  # lightweight simulator) ran with NO memory limit at all -- confirmed live
+  # via `oc get deploy -o json` across this whole project, these were the
+  # only app containers found without one. Investigating sandbox4001's 4th
+  # node-level memory-exhaustion failure in one day (04-LEARNINGS.md), these
+  # three were the only workload showing a real leak signature: consistent
+  # ~150-230MB/hour linear growth, reproduced across multiple independent
+  # restarts, all three growing in lockstep in the same time windows -- every
+  # other component checked (MCP servers, NextGCore NFs, Prism mocks,
+  # kubelet/crio/ovs-vswitchd, conntrack) was flat. Running `privileged: true,
+  # runAsUser: 0` for the network-namespace/veth manipulation SR Linux needs
+  # to boot inside Clabernetes, which plausibly explains why the leak showed
+  # up as unattributed host-level AnonPages rather than this container's own
+  # cgroup memory. Root cause inside SR Linux/Clabernetes itself is not yet
+  # confirmed (needs the memory-watchdog DaemonSet to catch a live
+  # occurrence) -- this limit doesn't fix the leak, it bounds the blast
+  # radius: Kubernetes' own OOM-killer now restarts a leaking instance at a
+  # few GiB instead of letting it consume the whole node.
+  deployment:
+    resources:
+      default:
+        requests:
+          cpu: 200m
+          memory: 512Mi
+        limits:
+          cpu: "1"
+          memory: 2Gi
   definition:
     containerlab: "# Containerlab topology for MCP-Telecom basic 3-node Nokia SRL\
       \ ring\n# Generated from ContainerlabManager.generate_test_scenario(\"basic\"\

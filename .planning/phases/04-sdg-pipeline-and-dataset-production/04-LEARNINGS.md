@@ -1047,3 +1047,61 @@ Custom SCC (`memory-watchdog`, `allowHostPID: true`, capabilities limited to `SY
 not full `privileged`) -- deliberately narrower than `nextgcore-upf`'s or `privileged`'s blanket
 grants, since this only needs to read `/proc` and the kernel ring buffer, not create network
 devices or modify the host.
+
+## 2026-10-14 -- actually found and fixed the memory leak: a real bug in mcp-telecom
+
+User suggested investigating from the angle of "which tool calls were happening" rather than
+waiting on the watchdog, and to cross-reference against the measured leak windows. This found and
+fixed the real root cause within about 30 minutes, no watchdog trigger needed.
+
+First narrowed the suspect list across every component with no memory limit set (since any
+component *with* a limit would get OOM-killed by Kubernetes long before contributing tens of GiB --
+confirmed via `oc get deploy -o json` scan across every namespace): `authorino`, `clabernetes-
+manager`/`ui`, and `mcp-telecom-basic-r1/r2/r3` (the Clabernetes-managed Nokia SR Linux routers --
+real commercial network OS, not a lightweight simulator). Checked each one's Prometheus memory
+history over the full ~24h cluster lifetime: `authorino` and `clabernetes-manager`/`ui` were flat
+and tiny (under 260 MiB) despite having no limit -- ruled out. `mcp-telecom-basic-r1/r2/r3` showed a
+clear, reproducible signature: ~150-230 MB/hour **linear** growth, confirmed across multiple
+independent pod restarts throughout the day, all three growing in lockstep in the same windows
+(e.g. 05:33-09:33: r1 667->1595 MiB, r2 782->1589 MiB, r3 1026->1681 MiB). Confirmed they run
+`privileged: true, runAsUser: 0` (needed for the network-namespace/veth manipulation SR Linux
+requires inside Clabernetes) -- plausibly why the leak showed up as unattributed host-level
+AnonPages rather than any container's own cgroup memory in the earlier investigation.
+
+Added a memory limit (2Gi, via the `Topology` CR's `spec.deployment.resources.default` -- the
+Deployments are CR-owned/reconciled, a direct `oc patch` would've been silently reverted, same
+mistake already made once today with `mcp-gateway-istio`) as a safety net. But then found the actual
+root cause: checked `mcp-telecom`'s own pod logs around the clearest leak window (16:45-17:00) and
+found a **tight, continuous retry loop** -- a new paramiko SSH connection to all 3 routers every
+15-20 seconds, non-stop, for 9+ hours (213 occurrences logged, 08:07:56 to 17:35:46, still ongoing
+as it was found). Every single call to the `parallel_operation` tool crashed with
+`AttributeError: 'str' object has no attribute 'success'` in `mcp_telecom/parallel.py`'s
+`format_parallel_results()`.
+
+**Root cause, 100% reproducible, confirmed via source read**: `server.py`'s `parallel_command` and
+`parallel_operation` tool functions call `ParallelExecutor.run_on_all()`/`run_operation_on_all()`,
+which returned `dict[str, str]` (already-unwrapped output/error strings) -- but then pass that
+straight into `format_parallel_results()`, which requires `dict[str, DeviceResult]` (it reads
+`.success`/`.error`/`.elapsed_ms` off each value). Every call to either tool was guaranteed to
+crash, with zero exceptions. Confirmed via repo-wide grep that nothing else calls these two
+methods, so the type mismatch had never been caught by any test (`test_parallel.py` tested
+`run_on_all` and `format_parallel_results` in isolation, never together -- the actual integration
+that was broken).
+
+**This wasn't Agent/pipeline-driven** -- `parallel_operation` isn't even in the MCP Gateway's
+externally-exposed `tools/list` (84 tools, no "parallel" entries). The calling IPs during the
+leak window belonged to `mcp-gateway` and `mcp-gateway-istio` themselves: the gateway's own
+periodic upstream-tool health-check/validation pass was hitting this (permanently broken) tool
+and retrying on failure, independent of whether the SDG pipeline was even running -- consistent
+with the leak's 9+ hour continuous span crossing multiple separate pipeline run attempts.
+
+**Fix**: changed `run_on_all`/`run_operation_on_all` to return `dict[str, DeviceResult]` directly
+(matching what `format_parallel_results()` actually needs) instead of pre-unwrapping to strings --
+`mcp/mcp-telecom/src/mcp_telecom/parallel.py`. Added two regression tests exercising the actual
+`run_on_all(...)` -> `format_parallel_results(...)` pipeline end-to-end (the integration that was
+broken), including one for `run_operation_on_all` specifically since it had zero prior test
+coverage despite being the exact method crashing live. All 190 `mcp-telecom` tests pass. Rebuilt
+(`mcp-telecom` BuildConfig, binary build from `mcp/mcp-telecom/`) and rolled out; confirmed live:
+zero `parallel_operation` errors and zero new SSH connections in the 30s following the restart
+(previously constant every 15-20s), and a direct `tools/call` test against the gateway returns a
+real result instead of the AttributeError.
