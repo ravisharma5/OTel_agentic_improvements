@@ -57,16 +57,24 @@ class DiagnosticColumnValueFilterBlock(ColumnValueFilterBlock):
     def generate(self, samples: pd.DataFrame, **kwargs: Any) -> pd.DataFrame:
         result = super().generate(samples, **kwargs)
 
-        if len(result) == 0 and len(samples) > 0:
+        # 2026-10-14: broadened from "== 0" after a live run showed 20->1 and
+        # 13->1 (not 0) -- severe but not total rejection, which the original
+        # all-or-nothing condition never logged. >50% rejected is a high bar
+        # unlikely to trigger on ordinary, expected filtering noise while
+        # still catching "something is wrong with most of this chunk."
+        rejected_count = len(samples) - len(result)
+        if len(samples) > 0 and rejected_count / len(samples) > 0.5:
             logger.info(
-                "DIAGNOSTIC: %s dropped all %d row(s) to 0 (column=%r, "
+                "DIAGNOSTIC: %s dropped %d/%d row(s) (column=%r, "
                 "filter_value=%r, operation=%r). Rejected row values:",
-                self.block_name, len(samples), self.column_name,
+                self.block_name, rejected_count, len(samples), self.column_name,
                 self.filter_value, self.operation,
             )
+            rejected_mask = ~samples.index.isin(result.index)
+            rejected_samples = samples[rejected_mask]
             # Cap at 5 rows to avoid flooding logs for a 20-row chunk --
             # the point is to see the pattern, not every row.
-            for _, row in samples.head(5).iterrows():
+            for _, row in rejected_samples.head(5).iterrows():
                 rating_value = row.get(self.column_name)
                 details = {"__filter_column__": rating_value}
                 for col in _DIAGNOSTIC_COLUMNS:
