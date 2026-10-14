@@ -941,3 +941,55 @@ domain servers), while `ip-10-0-56-33` (the node that failed and was rebooted ea
 at only 12%, nearly empty -- Kubernetes doesn't proactively rebalance already-running pods back
 onto a node once it recovers. Not acted on since it wasn't needed for this task, but relevant
 context for any future deployment decision on this cluster.
+
+## 2026-10-14 -- WASM-plugin fetch race recurred; root-caused and auto-remediated
+
+`ip-10-0-56-33` (sandbox4001) failed a second time -- same "kubelet stopped posting node status"
+class as the first incident. This time the MachineHealthCheck added earlier today handled it fully
+autonomously: detected it, deleted the Machine, and the MachineSet provisioned a replacement
+(`ip-10-0-9-160`) with no manual intervention. Confirms the MHC works as designed.
+
+The freshly-rescheduled `mcp-gateway-istio` pod hit the same Envoy WASM-plugin-load race from
+earlier today again (`Plugin kuadrant-wasm-shim failed to load`, fail-closed, every request 503s).
+Root-caused properly this time instead of just restarting it: the plugin is fetched remotely at
+Envoy startup from `kuadrant-operator-wasm.openshift-operators.svc.cluster.local:8082/plugin.wasm`
+(10s timeout, `failure_policy: FAIL_RELOAD`, configured in the `kuadrant-mcp-gateway` EnvoyFilter --
+owned by the `mcp-gateway` Gateway resource, reconciled by the Kuadrant operator, not something we
+can safely hand-edit). Checked `openshift-operators`: `kuadrant-operator-controller-manager`
+(which serves that endpoint) was *also* only ~19 minutes old at the time -- it got caught in the
+same node-failure disruption cascade. Two things that depend on each other both restarting at once.
+`FAIL_RELOAD` does not mean "retry on a timer" -- it means "reload on explicit trigger", so without
+a pod restart the gateway would have stayed 503ing indefinitely once this race was hit, confirmed
+by it not self-recovering in the ~15min window observed.
+
+Investigated a kubelet-native fix first (a `livenessProbe` catching this so Kubernetes restarts the
+pod itself, no custom component needed) -- rejected because `mcp-gateway-istio`'s Deployment is
+owned by the `mcp-gateway` Gateway resource and continuously reconciled by Istio's Gateway API
+controller; a direct probe edit would very likely be silently reverted, same pattern already hit
+with Keycloak's hostname and this same EnvoyFilter. Built `gateway/openshift/wasm-healer-cronjob.yaml`
+instead: a CronJob every 2 minutes that checks the gateway's real `/mcp` `initialize` response, and
+only restarts `mcp-gateway-istio` if it's actually failing AND the specific WASM-load log signature
+is present (avoids blindly restarting on an unrelated 503 cause). Verified live via a manual
+`oc create job --from=cronjob/...` run -- correctly no-opped while the gateway was healthy.
+
+**Separate, deliberately-not-fixed finding from this same incident**: a 93-minute pipeline retry
+attempt (`gpv2v`) got through 19 of 20 `run_expert_trajectory` agent calls for one seed
+(`multiply_tool_rows` expands one seed into 20 variations) before the gateway 503 killed the 20th.
+Checked `sdg_hub.core.flow.execution._process_with_checkpointing` directly (installed
+`sdg-hub==0.9.4` package): checkpointing commits per *original seed*, via
+`checkpointer.add_completed_samples(processed_chunk)` -- called only after `execute_blocks_on_dataset`
+returns for the *whole* chunk. Since all 20 of a seed's multiplied variations run inside that one
+`execute_blocks_on_dataset` call, a failure on variation 20/20 means the exception propagates before
+checkpointing is ever reached, discarding all 19 already-completed, already-paid-for agent calls
+(~70+ minutes of real LLM/Agent work) -- not a resume/retry bug (those worked exactly as designed,
+correctly resuming from the last *actually saved* checkpoint), but a genuine granularity mismatch
+between where `sdg_hub` checkpoints (per seed) and where the expensive, fragile work actually happens
+(per multiplied sub-row). This is third-party `sdg_hub` internals, not this project's own code.
+User's explicit call: accept and document rather than patch now, since MHC + the WASM auto-healer
+above should reduce *how often* a gateway outage interrupts a `run_expert_trajectory` batch in the
+first place, which is the actual trigger for this failure mode. If this keeps costing significant
+wall-clock time going forward, the two live options are (a) lower `multiply_tool_rows.num_samples`
+to shrink the blast radius of any single late failure, or (b) patch `_process_with_checkpointing`
+(or wrap `execute_blocks_on_dataset`) for sub-row checkpointing -- same class of effort as today's
+other `sdg_hub` monkey-patches but touches the core execution loop, not a single Block, so needs
+more care/testing.

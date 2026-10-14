@@ -1,0 +1,137 @@
+# Auto-remediation for the Kuadrant WASM-plugin startup race (04-LEARNINGS.md,
+# 2026-10-14 "WASM plugin fetch race" entries).
+#
+# Root cause: mcp-gateway-istio's Envoy fetches its Kuadrant auth/WASM plugin
+# remotely at startup from kuadrant-operator-wasm.openshift-operators.svc, with
+# a 10s timeout and failure_policy: FAIL_RELOAD (gateway/openshift/kuadrant-
+# mcp-gateway EnvoyFilter, owned/reconciled by the Kuadrant operator -- not
+# something we can safely hand-edit). If that fetch target is itself mid-
+# restart (e.g. during a node-failure/MachineHealthCheck replacement cascade
+# that also disrupts the Kuadrant operator pod), the fetch fails and Envoy
+# marks the plugin permanently failed-closed -- every request 503s -- until
+# something forces a reload. FAIL_RELOAD does not mean "retry on a timer"; it
+# means "reload on explicit trigger", and a pod restart is the simplest such
+# trigger. Confirmed hit twice live on 2026-10-14, each requiring a manual
+# `oc delete pod` to recover.
+#
+# This CronJob automates exactly that manual remediation: every 2 minutes,
+# check the gateway's real /mcp initialize response; only restart
+# mcp-gateway-istio if it's actually failing AND the specific WASM-load log
+# signature is present (avoids blindly restarting on an unrelated 503 cause).
+#
+# Investigated first whether a livenessProbe (kubelet-native, no polling
+# component needed) could do this instead -- rejected because
+# mcp-gateway-istio's Deployment is owned/continuously reconciled by the
+# `mcp-gateway` Gateway resource (Istio's Gateway API controller), so a direct
+# probe edit would very likely be silently reverted, the same pattern already
+# hit with Keycloak's hostname and this same EnvoyFilter. A CronJob poller
+# sidesteps that reconciliation fight entirely.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: gateway-wasm-healer
+  namespace: otel25-gateway
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: gateway-wasm-healer
+  namespace: otel25-gateway
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "delete"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: gateway-wasm-healer
+  namespace: otel25-gateway
+subjects:
+  - kind: ServiceAccount
+    name: gateway-wasm-healer
+    namespace: otel25-gateway
+roleRef:
+  kind: Role
+  name: gateway-wasm-healer
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: gateway-wasm-healer
+  namespace: otel25-gateway
+spec:
+  schedule: "*/2 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 60
+      template:
+        spec:
+          serviceAccountName: gateway-wasm-healer
+          restartPolicy: Never
+          containers:
+            - name: healer
+              image: image-registry.openshift-image-registry.svc:5000/openshift/cli:latest
+              env:
+                - name: CLIENT_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      name: keycloak-client-secret-sdg-pipeline
+                      key: CLIENT_SECRET
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+                runAsNonRoot: true
+                seccompProfile:
+                  type: RuntimeDefault
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -eu
+                  KC_URL="https://mcp-keycloak-otel25-gateway.apps.cluster-vrwj7.vrwj7.sandbox4001.opentlc.com"
+                  GW_URL="https://mcp.apps.cluster-vrwj7.vrwj7.sandbox4001.opentlc.com/mcp"
+
+                  TOKEN_RESP=$(curl -sk -X POST "$KC_URL/realms/mcp/protocol/openid-connect/token" \
+                    -d "grant_type=client_credentials&client_id=sdg-pipeline&client_secret=$CLIENT_SECRET")
+                  JWT=$(echo "$TOKEN_RESP" | python3 -c "import json,sys; print(json.load(sys.stdin).get('access_token',''))" 2>/dev/null || true)
+
+                  if [ -z "$JWT" ]; then
+                    echo "Could not acquire JWT -- Keycloak itself may be down, not a WASM issue. Not restarting anything."
+                    exit 0
+                  fi
+
+                  HTTP_CODE=$(curl -sk -o /tmp/resp.json -w '%{http_code}' -X POST "$GW_URL" \
+                    -H "Content-Type: application/json" \
+                    -H "Accept: application/json, text/event-stream" \
+                    -H "Authorization: Bearer $JWT" \
+                    -d '{"jsonrpc":"2.0","method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"wasm-healer","version":"1.0"}},"id":1}')
+
+                  if [ "$HTTP_CODE" = "200" ]; then
+                    echo "Gateway healthy (HTTP 200). Nothing to do."
+                    exit 0
+                  fi
+
+                  echo "Gateway returned HTTP $HTTP_CODE -- checking mcp-gateway-istio logs for the WASM-load failure signature."
+
+                  ISTIO_POD=$(oc get pod -n otel25-gateway -l service.istio.io/canonical-name=mcp-gateway-istio -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+                  if [ -z "$ISTIO_POD" ]; then
+                    echo "Could not find mcp-gateway-istio pod. Not restarting anything."
+                    exit 0
+                  fi
+
+                  if oc logs "$ISTIO_POD" -n otel25-gateway 2>/dev/null | grep -q "Plugin kuadrant-wasm-shim failed to load"; then
+                    echo "Confirmed: $ISTIO_POD has the WASM-load failure signature. Restarting it."
+                    oc delete pod "$ISTIO_POD" -n otel25-gateway
+                  else
+                    echo "Gateway is failing (HTTP $HTTP_CODE) but $ISTIO_POD does not show the known WASM-load signature -- a different problem. Not restarting; needs a human look."
+                  fi
