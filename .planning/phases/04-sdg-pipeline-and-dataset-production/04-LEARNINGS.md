@@ -1105,3 +1105,103 @@ coverage despite being the exact method crashing live. All 190 `mcp-telecom` tes
 zero `parallel_operation` errors and zero new SSH connections in the 30s following the restart
 (previously constant every 15-20s), and a direct `tools/call` test against the gateway returns a
 real result instead of the AttributeError.
+
+### 2026-10-14: a second, separate real bug surfaced while explaining a filtering diagnostic -- devices.yaml's vendor type was wrong for all three routers
+
+While explaining why `single_show_bgp_summary_router-lab-01` was dropping 18/20 rows in
+`filter_incomplete_responses`, checked what command the pipeline was actually sending: `show
+router bgp summary` -- classic Nokia SR OS syntax. Ran it live against r1 and got `Parsing error:
+Unknown token 'router'`. `devices.yaml` configured r1/r2/r3 as `device_type: "nokia_sros"`, but
+they're actually running **Nokia SR Linux** (confirmed via `show version`: `OS: SR Linux, Software
+Version: v26.7.2`) -- a different Nokia NOS with YANG-model-driven, nested-context CLI syntax, not
+SR OS's flatter `show router/service X` shape. `VendorType` had no SR Linux option at all.
+
+**Root cause, confirmed via source read**: `containerlab.py` already had `VENDOR_TO_CLAB_KIND` and
+`CLAB_DEFAULT_IMAGES` dicts mapping `VendorType.NOKIA_SROS` to the real srlinux kind/image
+(`ghcr.io/nokia/srlinux:latest`) -- so the actual container provisioning for this lab always used
+SR Linux. But `CLAB_KIND_TO_DEVICE_TYPE` (used by `generate_devices_yaml()` to auto-derive a
+device's CLI vendor type from its containerlab `kind`) mapped kind `"nokia_srlinux"` back to
+device_type `"nokia_sros"` -- because no SR Linux device_type existed to map to. `_scenario_basic()`
+(the exact scenario matching this deployed `mcp-telecom-basic` topology) had the identical
+hardcoded mismatch: `kind: nokia_srlinux` paired with `image: CLAB_DEFAULT_IMAGES[VendorType.
+NOKIA_SROS]`. Anyone regenerating `devices.yaml` from this scenario via the project's own tooling
+would reproduce this exact bug -- not a one-off typo.
+
+**A second bug found mid-fix**: the first attempt set `VendorType.NOKIA_SRLINUX = "nokia_srlinux"`
+and shipped it -- `run_vendor_operation` then failed with `Unsupported 'device_type'` listing
+Netmiko's full supported-platform list, which does **not** contain `"nokia_srlinux"`. Checked
+`netmiko.ssh_dispatcher.CLASS_MAPPER` directly inside the running pod: the real platform key is
+`"nokia_srl"`. `"nokia_srlinux"` is a *different* namespace entirely -- that's the containerlab
+`kind` string, unrelated to Netmiko's platform names. Fixed the enum value to `"nokia_srl"` and
+`devices.yaml` to match. Lesson: when adding a new device_type, verify the literal string value
+against the connection library's actual platform list, not just against the containerlab kind
+string -- they look similar but are two unrelated vocabularies.
+
+**A third bug found during live verification**: the `routing_table` mapping committed in a prior
+session as "verified live" (`show network-instance default route-table ipv4`) actually fails on
+re-test: SR Linux rejects any token after `route-table` (`Unknown token 'ipv4'/'ipv4-unicast'/
+'summary'/'all'. Options are ['#', '>', '>>', '{', '|']`), confirming `route-table` alone is the
+complete, terminal command. That "verified live" claim was wrong. Fixed to `show network-instance
+default route-table` (no AFI argument); in this topology (no dynamic routing configured) it
+returns a generic context-help string rather than a populated table, consistent with `bgp_summary`
+also coming back empty -- not a parsing failure, just an empty lab.
+
+Fixed: `models.py` (new `VendorType.NOKIA_SRLINUX`), `mappings.py` (new SR Linux command mapping,
+9 verified live + several inferred, `config_running` deliberately omitted since SR Linux's real
+config-display mechanism is a separate `info` verb, not `show`), `command_allowlist.yaml` (added
+`show platform`/`show arpnd` for the new chassis/arp_table ops), `devices.yaml` (device_type ->
+`nokia_srl`), `containerlab.py` (added NOKIA_SRLINUX to both vendor dicts, fixed
+`CLAB_KIND_TO_DEVICE_TYPE` and `_scenario_basic()` so this can't regress), `test_vendors.py`
+(pins the verified commands). All 194 tests pass. Rebuilt and redeployed `mcp-telecom`; verified
+live against r1 that `bgp_summary`, `interfaces`, `interface_detail`, `version`,
+`lldp_neighbors`, and `alarms` all return real device data through the actual `run_command`/
+`run_vendor_operation` code path.
+
+### 2026-10-14: a 5th sandbox4001 node death revealed the Topology CR memory limit was protecting the wrong cgroup the entire time
+
+A 5th node failure (same "kubelet stopped posting node status" signature) took down a node
+hosting `mcp-gateway-istio`, causing the SDG pipeline's `generate-tier` step to fail its first 5
+retry attempts with gateway 500s. MachineHealthCheck auto-recovered as designed; the gateway
+rescheduled itself onto a healthy node and the pipeline's final scheduled retry succeeded.
+
+The interesting part was root-causing the node death itself. The memory-watchdog DaemonSet (built
+earlier that day) caught the smoking gun live, 14 minutes before the node died: two Nokia SR Linux
+`.srlinuxrc` CLI bootstrap processes at 25GB and 19GB RSS (44GB combined) -- despite the Topology
+CR's `spec.deployment.resources` memory limit (2Gi, bumped same-day) supposedly already bounding
+these pods. Initial hypothesis (privileged containers bypass cgroup enforcement) was wrong --
+verified directly from the host that the limit genuinely was enforced (`memory.max` read exactly
+`2147483648` bytes on a live pod). Also ruled out "stale pre-fix pod" -- event timestamps showed
+the dead node's specific pod was created 2 seconds after the resource-limit patch's reconcile
+completed, i.e. it was *born* with the limit already in its spec.
+
+**Actual root cause, confirmed via `oc debug node` + direct host cgroup inspection**: these
+Clabernetes launcher pods run Docker-in-Docker (privileged, `dockerd`+`containerd` nested inside
+the pod) to spawn the real Nokia SR Linux container. `dockerd` itself lives inside the pod's own
+cgroup (`kubepods.slice/.../crio-<id>.scope`) and is correctly bounded by the Kubernetes-level
+limit -- but the actual `sr_linux` process it spawns lives in a completely separate, **top-level**
+host cgroup (`/sys/fs/cgroup/docker/<id>`), a sibling of `kubepods.slice`, not a child of it,
+entirely outside Kubernetes' resource accounting. The Topology CR's pod-level memory limit (2Gi,
+then 4Gi) was only ever bounding `dockerd`/`containerd`/launcher overhead (confirmed: that's
+exactly why a freshly-started pod sat at ~99% of a bare 2Gi limit within ~10 minutes while
+completely idle -- that's the launcher's own baseline, not the NOS). The actual leaking process
+was unconstrained this whole time, regardless of what the Kubernetes-level limit was set to.
+
+**Fix**: containerlab 0.74.3 (confirmed via grepping the binary's embedded yaml struct tags:
+`yaml:"memory,omitempty"`, `yaml:"cpu,omitempty"`) supports per-node `memory`/`cpu` fields that
+pass straight through to the inner `docker create`'s `HostConfig` -- the only mechanism that
+actually reaches this container's real cgroup. Added `memory: 3gb` / `cpu: 2` to r1/r2/r3 in
+`mcp/openshift/clabernetes-topology-cr.yaml`'s embedded containerlab topology (also rewrote that
+field from an escaped double-quoted string to a plain literal block scalar -- the escaped form
+was genuinely error-prone to edit, which slowed down landing this fix correctly). Verified live:
+the inner `/docker/<id>` cgroup now shows a real `memory.max` (~3GB, previously unlimited), and
+`memory.current` is flat (~2.1GB, matching the launcher-pod baseline finding above) rather than
+climbing, in the minutes after a fresh boot. A live `show version` against r1 through
+`mcp-telecom` confirms the vendor command path still works correctly under the new constraint.
+
+**Lesson for any future Docker-in-Docker-based workload on Kubernetes**: a pod-level
+`resources.limits` only bounds whatever cgroup the *outer* container's PID 1 and its direct
+children land in. If that process spawns further containers via a nested container runtime
+without explicit resource flags, don't assume cgroup nesting protects you -- verify with
+`cat /proc/<pid>/cgroup` on the actual inner process from the host, not just by reading
+`memory.current` on the outer pod's own scope (which will look perfectly healthy and bounded
+while the real workload runs free).
