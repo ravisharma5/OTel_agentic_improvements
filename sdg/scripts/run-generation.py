@@ -50,12 +50,20 @@ try:
     from sdg_hub import FlowRegistry, Flow  # type: ignore[import-untyped]
     from sdg_hub.core.utils.error_handling import EmptyDatasetError
     from sdg.lib.streaming_llm_chat_block import patch_llm_chat_block_for_streaming
+    from sdg.lib.debug_filter_rejections import patch_column_value_filter_for_diagnostics
 
     # Swap every LLMChatBlock in any loaded flow for a streaming-aware one --
     # see streaming_llm_chat_block.py for why (AWS ELB idle-connection
     # timeout on long non-streaming generations, confirmed live). Must run
     # before FlowRegistry.discover_flows()/Flow.from_yaml() are called below.
     patch_llm_chat_block_for_streaming()
+    # 2026-10-14: diagnostic patch added while investigating 10/11 single_tool
+    # scenarios reproducibly failing filter_incomplete_responses -- see
+    # debug_filter_rejections.py's module docstring. Logs rejected rows'
+    # actual content (question, agent response, completeness rating) instead
+    # of just a row/column count, which checkpointing can't surface since
+    # filtered-to-zero rows never get checkpointed in the first place.
+    patch_column_value_filter_for_diagnostics()
 except ImportError:
     FlowRegistry = None  # type: ignore[assignment,misc]
     Flow = None  # type: ignore[assignment,misc]
