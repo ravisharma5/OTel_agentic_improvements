@@ -467,7 +467,7 @@ root:
         retryPolicy:
           backoffDuration: 60s
           backoffFactor: 2.0
-          backoffMaxDuration: 1200s
+          backoffMaxDuration: 86400s
           maxRetryCount: 5
         taskInfo:
           name: generate-tier
@@ -492,7 +492,7 @@ root:
         retryPolicy:
           backoffDuration: 60s
           backoffFactor: 2.0
-          backoffMaxDuration: 1200s
+          backoffMaxDuration: 86400s
           maxRetryCount: 5
         taskInfo:
           name: generate-tier-2
@@ -517,7 +517,7 @@ root:
         retryPolicy:
           backoffDuration: 60s
           backoffFactor: 2.0
-          backoffMaxDuration: 1200s
+          backoffMaxDuration: 86400s
           maxRetryCount: 5
         taskInfo:
           name: generate-tier-3
@@ -542,7 +542,7 @@ root:
         retryPolicy:
           backoffDuration: 60s
           backoffFactor: 2.0
-          backoffMaxDuration: 1200s
+          backoffMaxDuration: 86400s
           maxRetryCount: 5
         taskInfo:
           name: generate-tier-4
@@ -567,7 +567,7 @@ root:
         retryPolicy:
           backoffDuration: 60s
           backoffFactor: 2.0
-          backoffMaxDuration: 1200s
+          backoffMaxDuration: 86400s
           maxRetryCount: 5
         taskInfo:
           name: generate-tier-5

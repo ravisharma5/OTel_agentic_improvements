@@ -335,7 +335,22 @@ def sdg_production_pipeline(
         # retry 3 at T+7min (past the pod-reschedule window) and retry 4 at
         # T+15min (at the MHC's node-replacement window), with retry 5 at
         # T+31min as margin for a slower-than-usual AWS provisioning delay.
-        t.set_retry(num_retries=5, backoff_duration="60s", backoff_factor=2.0, backoff_max_duration="1200s")
+        #
+        # backoff_max_duration 2026-10-14 correction: despite the KFP docstring
+        # reading like a per-retry backoff cap, Argo's actual retryStrategy
+        # treats this as a ceiling on the WHOLE retry node's elapsed lifetime,
+        # counted from the very first attempt's start -- not the backoff waits
+        # between retries. Confirmed live: a run set to 1200s (20min) ran for
+        # ~3h55m before hitting a transient Langflow/MCP-tools failure, and
+        # Argo's own node status reported "Max duration limit exceeded" and
+        # refused to spawn even a single retry, because the 20min budget had
+        # been exhausted hours earlier -- the num_retries=5 policy above never
+        # got a chance to run at all. generate_tier routinely runs for several
+        # hours per tier (04-SCALE-UP-PLAN.md: ~3.5hr observed for a single
+        # single_tool tier), so this must cover the full realistic task
+        # lifetime, not just the backoff pauses. Set generously high (24h) so
+        # num_retries is the actual binding constraint, not this duration cap.
+        t.set_retry(num_retries=5, backoff_duration="60s", backoff_factor=2.0, backoff_max_duration="86400s")
         t.set_cpu_request("250m").set_cpu_limit("1").set_memory_request("512Mi").set_memory_limit("1Gi")
         _wire_env(t)
         # 2026-10-13: mount the checkpoint PVC (sdg/openshift/sdg-checkpoints-pvc.yaml,
@@ -409,6 +424,25 @@ def main() -> None:
     args = parser.parse_args()
 
     compiler.Compiler().compile(sdg_production_pipeline, args.output)
+
+    # 2026-10-14: work around kfp==2.9.0's PipelineTask.set_retry() hard-clamping
+    # backoff_max_duration to 3600s regardless of the value passed in
+    # (kfp/dsl/structures.py: `min(convert_duration_to_seconds(backoff_max_duration),
+    # 3600)`) -- confirmed via source read, not a guess. This is a client-side SDK
+    # limit, not an Argo platform one: Argo's own retryStrategy.backoff.maxDuration
+    # is a plain duration string with no such cap. Confirmed live that the 1hr clamp
+    # makes retries useless in practice: generate_tier routinely runs 3-4+ hours per
+    # tier (04-SCALE-UP-PLAN.md), and a run capped at 3600s hit a transient failure
+    # at ~3h55m with Argo reporting "Max duration limit exceeded" and refusing to
+    # spawn even one retry, because the budget had been exhausted hours earlier.
+    # Patch the compiled IR directly post-compile to the real intended value (the
+    # generate_tier.set_retry() call above) -- Argo itself accepts this fine.
+    with open(args.output) as f:
+        compiled_ir = f.read()
+    compiled_ir = compiled_ir.replace("backoffMaxDuration: 3600s", "backoffMaxDuration: 86400s")
+    with open(args.output, "w") as f:
+        f.write(compiled_ir)
+
     print(f"Compiled pipeline IR written to {args.output}")
 
     if args.submit:
