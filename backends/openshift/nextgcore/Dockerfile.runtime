@@ -42,6 +42,20 @@ COPY --from=binaries /out/nextgcore-* /usr/local/bin/
 RUN chmod +x /usr/local/bin/nextgcore-* && \
     chown nextgcore:nextgcore /usr/local/bin/nextgcore-*
 
+# nextgsim's UE/gNB simulator binaries, also compiled by the same builder
+# stage (nextgcore-builder's Dockerfile.builder clones and builds both
+# nextgcore and nextgsim side by side) but previously never copied into the
+# runtime image at all -- the glob above only matches nextgcore-*, silently
+# excluding these. 2026-10-14: added after confirming live that
+# single_get_nwdaf_analytics can't get real NWDAF data without a UE/gNB
+# traffic simulator actually driving the core (NextGCore's own control-plane
+# has nothing to report analytics on with zero registered UEs). Binary names
+# are nr-gnb/nr-ue/nr-cli, not nextgsim-* -- confirmed via nextgcore's own
+# Dockerfile.builder on GitHub, not guessed.
+COPY --from=binaries /out/nr-gnb /out/nr-ue /out/nr-cli /usr/local/bin/
+RUN chmod +x /usr/local/bin/nr-gnb /usr/local/bin/nr-ue /usr/local/bin/nr-cli && \
+    chown nextgcore:nextgcore /usr/local/bin/nr-gnb /usr/local/bin/nr-ue /usr/local/bin/nr-cli
+
 ENV RUST_LOG=info
 
 EXPOSE 7777 38412 9090 8805/udp 2152/udp
