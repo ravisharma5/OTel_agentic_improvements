@@ -100,23 +100,32 @@ tiers:
         parameters:
           supi: [imsi-999700000000001, imsi-999700000000002]
 
+      # 2026-10-14: these 3 scenarios used `device_id` (ue-001/ue-002/ue-003)
+      # before, but all 3 devicestatus* tools' real inputSchema requires
+      # device_phone_number -- confirmed live via a direct gateway tools/call
+      # that device_id produces a Pydantic validation error
+      # (missing_argument: device_phone_number). ue-NNN-style values also
+      # aren't phone-number-shaped, so even the mcp_server_description
+      # grounding text was steering generation wrong. Values below confirmed
+      # live against the real tool.
+
       - name: single_check_roaming_status
         tool_subset: [devicestatusget_roaming_status]
-        description: "Check roaming status for {device_id}"
+        description: "Check roaming status for {device_phone_number}"
         parameters:
-          device_id: [ue-001, ue-002, ue-003]
+          device_phone_number: ["+15550001000", "+15550001001", "+15550001002"]
 
       - name: single_check_reachability_status
         tool_subset: [devicestatusget_reachability_status]
-        description: "Check reachability status for {device_id}"
+        description: "Check reachability status for {device_phone_number}"
         parameters:
-          device_id: [ue-001, ue-002, ue-003]
+          device_phone_number: ["+15550001000", "+15550001001", "+15550001002"]
 
       - name: single_check_network_type
         tool_subset: [devicestatusget_connected_network_type]
-        description: "Check connected network type for {device_id}"
+        description: "Check connected network type for {device_phone_number}"
         parameters:
-          device_id: [ue-001, ue-002, ue-003]
+          device_phone_number: ["+15550001000", "+15550001001", "+15550001002"]
 
   # ─── Tier 2: Parallel ──────────────────────────────────────────────────
   # Independent tool calls to different domains that can run simultaneously.

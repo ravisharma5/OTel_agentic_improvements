@@ -669,6 +669,14 @@ found, root cause not yet identified. Re-verify against the new cluster once it'
 cluster fixes this on its own, since it looks gateway/auth-layer-specific rather than node/cluster-health
 related.
 
+**UPDATE 2026-10-14, re-verified on sandbox4001**: this was NOT a gateway/auth-layer bug. Direct
+`tools/call` against the live gateway returns a clean `200`/`isError: false` for UDR -- the earlier
+observed "4xx"/"cannot execute" symptom was actually the empty-subscriber-data gap (see this date's own
+entry below) producing a `not_found` payload that the Agent then mis-reported as a tool-execution
+failure, not a real gateway error. NWDAF was separately fixed via the h2c backport (2026-10-12 entry
+above). Closing this as resolved -- no distinct gateway-layer bug was ever found because there wasn't
+one.
+
 **Resolved same day**: the user brought sandbox1330 back up specifically to recover this before deleting
 it for good. `backends/openshift/nextgcore/buildconfig-nextgcore.yaml` + `deploy-build.sh` now commit both
 BuildConfigs, live-tested end-to-end on sandbox1330 before it was decommissioned. Two non-obvious findings
@@ -793,3 +801,53 @@ Same resubmit also confirmed the vLLM router-scheduler pod restart (tried as a c
 **not** fix it -- re-measured post-restart at 3999m vs 124m, essentially unchanged. The cheap fix
 didn't work; the scale-up plan's harder options (investigate the EPP scheduler's actual routing
 logic/config, or accept ~1x effective capacity from the 2 replicas) are the remaining paths.
+
+## 2026-10-14 -- CAMARA Device Status seeds used the wrong parameter name (device_id vs device_phone_number)
+
+Before resubmitting after today's fixes, tested the remaining untested single_tool scenarios directly
+against the live Agent (same method that already caught the TMF628 and materialize_seeds bugs). UDR
+and `single_check_roaming_status` both came back "I cannot execute this tool" even after an explicit
+prior-turn tool-selection confirmation. Direct `tools/call` straight at the gateway (bypassing
+Langflow/Agent entirely) isolated it immediately: `devicestatusget_roaming_status`,
+`_reachability_status`, and `_connected_network_type` all require `device_phone_number` in their real
+`inputSchema` -- `seed-scenarios.yaml` declared `device_id` with values like `ue-001`, which the tool
+rejects with a Pydantic `missing_argument` error. Not phone-number-shaped at all, so even the
+`mcp_server_description` grounding text was steering question generation wrong independent of the
+validation error. Fixed all 3 `single_check_*` scenarios to use `device_phone_number` with
+`+1555000100x`-style values, confirmed live against the real tool
+(`devicestatusget_roaming_status` with `+15550001000` now returns real
+`{"roaming": true, "countryCode": 901, ...}` data, not a validation error). The multi-tool scenarios
+referencing these tools (`parallel_roaming_and_location`, `sequential_alarm_to_roaming_check`, both
+closed_loop device scenarios) don't declare a `parameters` block for this field, so they weren't
+affected.
+
+## 2026-10-14 -- UDR had zero provisioned subscribers on sandbox4001 (known risk from Phase 6, materialized)
+
+Same "confirm nothing else is missing" pass: `udrget_authentication_subscription` executes cleanly
+(`200`, `isError: false`) but returned `{"status": "not_found"}` for both seed IMSIs. Checked the
+backing MongoDB directly (`mongosh` into the live pod) -- no NextGCore subscriber database at all, just
+the default `admin`/`config`/`local` system DBs. This is exactly the risk `06-RESEARCH.md` flagged when
+UDR was first built: the test subscriber (`imsi-999700000000001`) was provisioned via `nextgcore-webui`
+against the *previous* cluster's MongoDB, and that data doesn't survive a cluster cutover (the
+sandbox3435->sandbox4001 move today wiped it, as anticipated).
+
+Re-provisioned on sandbox4001 using the documented procedure: ran `nextgcore-webui` (bundled in the
+`nextgcore-runtime` image, never deployed as a standing service) as a throwaway pod with
+`--insecure-dev --listen 0.0.0.0 --db-uri mongodb://mongodb.otel25-backends.svc.cluster.local:27017`
+(note: the flag is `--db-uri`, not `--mongo-uri` as the narrative docs implied -- confirmed via
+`--help`; also confirmed `--db-name` defaults to `nextgcore`, matching what the UDR itself reads, not
+`open5gs`). The exact `POST /api/subscribers` payload shape was never actually committed anywhere
+(06-01/06-03 only narrated that it worked), so re-derived it live via the same schema-probing-by-error
+technique used for TMF628 earlier today: `{"imsi": "<5-15 raw digits, no "imsi-" prefix>", "security":
+{"k": "<32-hex permanent key>", "opc": "<32-hex operator key>"}}` -- `amf`/`sqn` default to `8000`/`0`.
+Provisioned both seed IMSIs (`999700000000001`, `999700000000002`), verified end-to-end through the
+real gateway: `udrget_authentication_subscription` now returns genuine 3GPP-structured data
+(`authenticationMethod: 5G_AKA`, `encPermanentKey`, `encOpcKey`, `sequenceNumber`, etc.) for both,
+cleaned up the throwaway pod after.
+
+**Generalizes**: any subscriber-backed data (UDR, and anything else that reads from this same Mongo)
+does NOT survive a cluster cutover/rebuild, since the data lives only in a PVC that isn't part of any
+committed manifest or backup. If a future cluster migration happens again, re-run this same
+`nextgcore-webui` provisioning step before trusting UDR-dependent scenarios -- it is not optional
+infra, it's seed data the pipeline silently degrades without (a clean `not_found` response, not an
+error, so nothing fails loudly if this is skipped).
