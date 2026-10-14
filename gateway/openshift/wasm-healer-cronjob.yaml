@@ -123,9 +123,19 @@ spec:
 
                   echo "Gateway returned HTTP $HTTP_CODE -- checking mcp-gateway-istio logs for the WASM-load failure signature."
 
-                  ISTIO_POD=$(oc get pod -n otel25-gateway -l service.istio.io/canonical-name=mcp-gateway-istio -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+                  # Filter to Running pods and take the most recently created one --
+                  # a brief Terminating+Running overlap during a node-replacement
+                  # cascade or an unrelated rollout could otherwise make an
+                  # unqualified .items[0] pick the wrong (dying) pod non-deterministically.
+                  # (oc's jsonpath doesn't support negative slice indices for "last
+                  # item" -- confirmed live, errors with "array index out of bounds" --
+                  # so this sorts/picks via python3, which is present in this image.)
+                  ISTIO_POD=$(oc get pod -n otel25-gateway -l service.istio.io/canonical-name=mcp-gateway-istio \
+                    --field-selector=status.phase=Running -o json 2>/dev/null | \
+                    python3 -c "import json,sys; items=json.load(sys.stdin)['items']; items.sort(key=lambda p: p['metadata']['creationTimestamp']); print(items[-1]['metadata']['name'] if items else '')" \
+                    || true)
                   if [ -z "$ISTIO_POD" ]; then
-                    echo "Could not find mcp-gateway-istio pod. Not restarting anything."
+                    echo "Could not find a Running mcp-gateway-istio pod (likely still rescheduling after a node event). Not restarting anything -- will recheck next cycle."
                     exit 0
                   fi
 
