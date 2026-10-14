@@ -19,6 +19,14 @@ spec:
         layer: mcp
         domain: tmf
     spec:
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            preference:
+              matchExpressions:
+              - key: node-role.kubernetes.io/control-plane
+                operator: DoesNotExist
       containers:
       - name: mcp-tmf621
         image: image-registry.openshift-image-registry.svc:5000/otel25-mcp/mcp-tmf621:latest
@@ -27,11 +35,11 @@ spec:
           protocol: TCP
         resources:
           requests:
-            cpu: 250m
-            memory: 256Mi
-          limits:
             cpu: 500m
             memory: 512Mi
+          limits:
+            cpu: "1"
+            memory: 1Gi
         readinessProbe:
           httpGet:
             path: /healthz
