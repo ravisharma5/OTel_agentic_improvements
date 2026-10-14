@@ -73,6 +73,14 @@ tiers:
         # substitution fix, same date) -- the live pipeline was generating
         # questions about SERVICE_EXPERIENCE/NETWORK_PERFORMANCE/etc.,
         # none of which were ever in this list or confirmed supported.
+        # 2026-10-14: even NF_LOAD will keep returning no_content for the
+        # foreseeable future -- confirmed live that AMF's NGAP server never
+        # actually binds (config declares 0.0.0.0:38412, nothing is
+        # listening), so no gNB/UE traffic (real or simulated via nextgsim)
+        # can ever reach this NextGCore deployment. This is a permanent gap
+        # for this dev-profile build, not a pending task -- see
+        # 04-LEARNINGS.md's 2026-10-14 "nextgsim is a permanent dead end"
+        # entry before attempting to fix this again.
         parameters:
           analytics_type: [NF_LOAD]
 

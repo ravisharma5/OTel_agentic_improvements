@@ -891,3 +891,53 @@ re-evaluated first, not copied blindly from this one.
 
 Verified live: `currentHealthy: 2`, `expectedMachines: 2`, `remediationsAllowed: 1`,
 `RemediationAllowed: True` immediately after applying.
+
+## 2026-10-14 -- nextgsim is a permanent dead end: AMF's NGAP server never actually binds
+
+User asked to finish the nextgsim (UE/gNB traffic simulator) deployment left pending from earlier
+today, with an explicit instruction to plan carefully so it doesn't overload sandbox4001 and risk
+the then-running pipeline (`qcq4k`). Investigating live cluster state before writing a deployment
+plan (rather than just writing manifests from the Dockerfile fix alone) surfaced a hard blocker
+that makes the entire deployment pointless, independent of any resource/SCC/networking planning.
+
+**Confirmed live, not inferred**: AMF's own config file (`oc exec` into the live `amf` pod,
+`cat /etc/nextgcore/amf.yaml`) explicitly declares `ngap.server: address 0.0.0.0, port 38412` --
+the binary is configured to listen for NGAP, the protocol a gNB uses to register with AMF over the
+N2 interface. But `ss -tln` inside that same live pod shows only `127.0.0.1:7777` (the SBI/HTTP
+port) actually bound -- nothing is listening on 38412 at all. The container spec even declares
+`containerPort: 38412` with `protocol: TCP` (itself wrong -- real NGAP runs over SCTP, not TCP),
+but that's moot since nothing is listening there regardless of protocol.
+
+This is the same class of bug already documented for this NextGCore dev-profile build elsewhere in
+this project: AMF's SBI binding to `127.0.0.1` despite its config declaring `0.0.0.0` (06-01-PLAN.md),
+and NRF's self-registration advertising `0.0.0.0` as every NF's own address (06-01-PLAN.md). A
+consistent pattern of this build declaring full config that isn't actually wired up end to end.
+
+**Consequence**: no gNB -- real or simulated via nextgsim -- can register with this AMF. The N2
+socket simply isn't open. No amount of correct nextgsim config, SCC setup (a working
+`NET_ADMIN`-granting SCC pattern already exists and was ready to reuse, see `nextgcore-upf`'s
+ServiceAccount/SCC binding), or careful node placement changes this. Deploying nextgsim as
+originally scoped would have consumed real cluster resources for a guaranteed connection-refused
+failure at the very first step (gNB-to-AMF registration), before any traffic could ever reach
+NWDAF.
+
+Presented this to the user with three options (abandon and document; dig into NextGCore's Rust
+source to fix AMF's NGAP binding; look for an alternate NWDAF data-ingestion path bypassing
+AMF/gNB entirely). **User chose to abandon**, consistent with this project's own prior precedent --
+Phase 6 made the identical call to skip AMF/UDM entirely after hitting comparable unfixable
+upstream bugs with no viable workaround found.
+
+**This closes out the nextgsim gap permanently** for this NextGCore deployment: NWDAF will keep
+returning `no_content` for every real query (NF_LOAD included) until a non-dev-profile NextGCore
+build is used, or AMF's NGAP server is fixed upstream -- neither of which is in scope for this
+project. Future sessions should not re-attempt this without a materially different starting point
+(a different NextGCore build, or a decision to patch the Rust source directly).
+
+**Separate, unrelated finding from the same investigation, worth flagging even though it didn't
+end up mattering here**: sandbox4001's 2 true worker nodes are badly imbalanced right now --
+`ip-10-0-38-208` sits at 96% CPU request utilization and hosts essentially the entire pipeline
+dependency chain (all 9 NextGCore NFs, all 8 Prism mocks, the MCP Gateway, Keycloak, most MCP
+domain servers), while `ip-10-0-56-33` (the node that failed and was rebooted earlier today) sits
+at only 12%, nearly empty -- Kubernetes doesn't proactively rebalance already-running pods back
+onto a node once it recovers. Not acted on since it wasn't needed for this task, but relevant
+context for any future deployment decision on this cluster.
