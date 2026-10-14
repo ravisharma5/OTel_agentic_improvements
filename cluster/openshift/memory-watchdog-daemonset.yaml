@@ -1,0 +1,148 @@
+# Memory watchdog for the recurring sandbox4001 node-failure signature
+# (04-LEARNINGS.md, 2026-10-14 "memory leak" entries). See memory-watchdog.py's
+# module docstring for the full background and detection logic.
+#
+# Runs on every node (not just workers -- one of the 4 failures hit a
+# control-plane node) via hostPID, which makes `ps`/`dmesg`/`/proc/meminfo`
+# inside the container reflect the HOST, not the container -- confirmed live
+# via a throwaway test pod before building this. Deliberately does NOT use
+# hostPath mounts of /proc or /dev (a broader, harder-to-reason-about SCC
+# surface); hostPID + the container's own already-present `ps`/`dmesg`
+# binaries (confirmed present in this image) is sufficient and narrower.
+#
+# Writes triggered diagnostics to a ConfigMap, not a local file or just
+# stdout -- both of those live on/through the dying node and are exactly
+# what's unavailable once the node is too far gone to debug (confirmed live:
+# `oc debug node` couldn't even schedule a pod onto an affected node).
+# ConfigMaps live in etcd, replicated across control-plane nodes, so they
+# survive the node being fully replaced by the MachineHealthCheck afterward.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: node-diagnostics
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: memory-watchdog
+  namespace: node-diagnostics
+---
+apiVersion: security.openshift.io/v1
+kind: SecurityContextConstraints
+metadata:
+  name: memory-watchdog
+allowHostDirVolumePlugin: false
+allowHostIPC: false
+allowHostNetwork: false
+allowHostPID: true
+allowHostPorts: false
+allowPrivilegedContainer: false
+allowPrivilegeEscalation: true
+allowedCapabilities:
+  - SYS_PTRACE
+  - SYSLOG
+defaultAddCapabilities: null
+fsGroup:
+  type: RunAsAny
+readOnlyRootFilesystem: false
+requiredDropCapabilities:
+  - ALL
+runAsUser:
+  type: RunAsAny
+seLinuxContext:
+  type: RunAsAny
+seccompProfiles:
+  - runtime/default
+supplementalGroups:
+  type: RunAsAny
+users:
+  - system:serviceaccount:node-diagnostics:memory-watchdog
+volumes:
+  - configMap
+  - downwardAPI
+  - emptyDir
+  - projected
+  - secret
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: memory-watchdog
+  namespace: node-diagnostics
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "create", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: memory-watchdog
+  namespace: node-diagnostics
+subjects:
+  - kind: ServiceAccount
+    name: memory-watchdog
+    namespace: node-diagnostics
+roleRef:
+  kind: Role
+  name: memory-watchdog
+  apiGroup: rbac.authorization.k8s.io
+#
+# The memory-watchdog-script ConfigMap (containing memory-watchdog.py's
+# contents) is generated, not hand-written here, to avoid manually
+# maintaining Python indentation inside YAML. Regenerate after any change to
+# memory-watchdog.py with:
+#   oc create configmap memory-watchdog-script \
+#     --from-file=memory-watchdog.py=cluster/openshift/memory-watchdog.py \
+#     -n node-diagnostics --dry-run=client -o yaml \
+#     > cluster/openshift/memory-watchdog-script-configmap.generated.yaml
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: memory-watchdog
+  namespace: node-diagnostics
+spec:
+  selector:
+    matchLabels:
+      app: memory-watchdog
+  template:
+    metadata:
+      labels:
+        app: memory-watchdog
+    spec:
+      serviceAccountName: memory-watchdog
+      hostPID: true
+      tolerations:
+        - operator: Exists
+      containers:
+        - name: watchdog
+          image: image-registry.openshift-image-registry.svc:5000/openshift/cli:latest
+          command: ["python3", "/scripts/memory-watchdog.py"]
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: WATCHDOG_NAMESPACE
+              value: node-diagnostics
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: true
+            capabilities:
+              add: ["SYS_PTRACE", "SYSLOG"]
+              drop: ["ALL"]
+          volumeMounts:
+            - name: script
+              mountPath: /scripts
+      volumes:
+        - name: script
+          configMap:
+            name: memory-watchdog-script
+            defaultMode: 0555

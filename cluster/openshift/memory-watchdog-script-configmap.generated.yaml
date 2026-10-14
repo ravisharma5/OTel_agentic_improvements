@@ -1,0 +1,149 @@
+apiVersion: v1
+data:
+  memory-watchdog.py: |
+    #!/usr/bin/env python3
+    """Memory watchdog: catches the 2026-10-14 sandbox4001 node-failure signature
+    (AnonPages growing several GiB within ~1min, MemAvailable collapsing) and
+    captures diagnostics BEFORE the node becomes too unresponsive to debug.
+
+    Background: 4 node failures hit sandbox4001 in one day, all with the
+    identical signature -- AWS reports the instance "ok"/"passed" on every
+    check (ruling out real EC2/hardware failure), while Prometheus showed
+    AnonPages exploding from ~13GiB to ~53GiB in 10 minutes before the node
+    stopped responding. By the time anyone noticed, the node was too
+    unresponsive to even schedule an `oc debug node` pod to pull dmesg/ps --
+    confirmed live, twice. Root cause was never identified because the
+    evidence (dmesg, process list) requires the node to still be alive enough
+    to produce it, and MachineHealthCheck's remediation (delete + replace the
+    Machine) destroys whatever's left the moment it fires.
+
+    This polls /proc/meminfo every 15s (via hostPID -- no hostPath mounts
+    needed, see module comment in the DaemonSet manifest for why) and, the
+    moment it sees the same signature starting, immediately captures `ps aux
+    --sort=-rss` and `dmesg -T` and writes them into a ConfigMap. ConfigMaps
+    live in etcd, replicated across control-plane nodes -- unlike a local
+    file or even oc logs (both tied to the dying node/kubelet), this survives
+    the node being fully replaced afterward.
+    """
+    from __future__ import annotations
+
+    import json
+    import os
+    import subprocess
+    import time
+
+    NODE_NAME = os.environ["NODE_NAME"]
+    NAMESPACE = os.environ.get("WATCHDOG_NAMESPACE", "node-diagnostics")
+    POLL_INTERVAL_SECONDS = 15
+    WINDOW_SECONDS = 60
+    ANON_GROWTH_THRESHOLD_GB = 5.0
+    AVAILABLE_PCT_THRESHOLD = 0.15
+    COOLDOWN_SECONDS = 1800
+
+
+    def read_meminfo() -> dict[str, int]:
+        info = {}
+        with open("/proc/meminfo") as f:
+            for line in f:
+                parts = line.split(":")
+                if len(parts) != 2:
+                    continue
+                key = parts[0].strip()
+                value_str = parts[1].strip().split()[0]
+                info[key] = int(value_str) * 1024  # kB -> bytes
+        return info
+
+
+    def run(cmd: list[str]) -> str:
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+            return result.stdout or result.stderr
+        except Exception as e:  # noqa: BLE001 -- diagnostic capture must never crash the watchdog
+            return f"[failed to run {cmd}: {e}]"
+
+
+    def write_configmap(name: str, data: dict[str, str]) -> None:
+        manifest = {
+            "apiVersion": "v1",
+            "kind": "ConfigMap",
+            "metadata": {
+                "name": name,
+                "namespace": NAMESPACE,
+                "labels": {"app": "memory-watchdog", "node": NODE_NAME.replace(".", "-")[:63]},
+            },
+            "data": data,
+        }
+        proc = subprocess.run(
+            ["oc", "apply", "-f", "-"],
+            input=json.dumps(manifest),
+            text=True,
+            capture_output=True,
+            timeout=30,
+        )
+        print(f"configmap apply rc={proc.returncode} stdout={proc.stdout.strip()} stderr={proc.stderr.strip()}", flush=True)
+
+
+    def main() -> None:
+        history: list[tuple[float, int]] = []
+        last_trigger_time = 0.0
+        print(f"memory-watchdog starting on node {NODE_NAME}, writing to namespace {NAMESPACE}", flush=True)
+
+        while True:
+            try:
+                mem = read_meminfo()
+                total = mem.get("MemTotal", 1)
+                available = mem.get("MemAvailable", 0)
+                anon = mem.get("AnonPages", 0)
+                now = time.time()
+
+                history.append((now, anon))
+                history[:] = [(t, a) for t, a in history if now - t <= WINDOW_SECONDS + POLL_INTERVAL_SECONDS]
+
+                available_pct = available / total if total else 1.0
+                anon_growth_gb = (anon - history[0][1]) / (1024**3) if history else 0.0
+
+                print(
+                    f"[{time.strftime('%H:%M:%S')}] available={available / 1024**3:.2f}GiB "
+                    f"({available_pct * 100:.1f}%) anon={anon / 1024**3:.2f}GiB "
+                    f"growth={anon_growth_gb:+.2f}GiB/{WINDOW_SECONDS}s",
+                    flush=True,
+                )
+
+                triggered = anon_growth_gb >= ANON_GROWTH_THRESHOLD_GB or available_pct <= AVAILABLE_PCT_THRESHOLD
+                if triggered and (now - last_trigger_time) >= COOLDOWN_SECONDS:
+                    last_trigger_time = now
+                    print(
+                        f"!!! TRIGGER on {NODE_NAME}: anon_growth={anon_growth_gb:.2f}GiB "
+                        f"available_pct={available_pct * 100:.1f}% -- capturing diagnostics",
+                        flush=True,
+                    )
+                    meminfo_text = "\n".join(f"{k}: {v}" for k, v in mem.items())
+                    ps_text = run(["ps", "aux", "--sort=-rss"])
+                    dmesg_text = run(["dmesg", "-T"])
+                    # ConfigMaps cap at ~1MiB total -- tail the noisiest/largest fields.
+                    cm_name = f"memory-watchdog-{NODE_NAME.replace('.', '-')[:40]}-{int(now)}"
+                    write_configmap(
+                        cm_name,
+                        {
+                            "node": NODE_NAME,
+                            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now)),
+                            "anon_growth_gb": f"{anon_growth_gb:.2f}",
+                            "available_pct": f"{available_pct * 100:.1f}",
+                            "meminfo": meminfo_text,
+                            "ps_aux_by_rss": "\n".join(ps_text.splitlines()[:40]),
+                            "dmesg_tail": "\n".join(dmesg_text.splitlines()[-300:]),
+                        },
+                    )
+            except Exception as e:  # noqa: BLE001 -- a watchdog that crashes on one bad reading is worse than useless
+                print(f"watchdog loop error: {e}", flush=True)
+
+            time.sleep(POLL_INTERVAL_SECONDS)
+
+
+    if __name__ == "__main__":
+        main()
+kind: ConfigMap
+metadata:
+  creationTimestamp: null
+  name: memory-watchdog-script
+  namespace: node-diagnostics

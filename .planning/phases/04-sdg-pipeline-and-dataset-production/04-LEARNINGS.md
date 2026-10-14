@@ -993,3 +993,57 @@ to shrink the blast radius of any single late failure, or (b) patch `_process_wi
 (or wrap `execute_blocks_on_dataset`) for sub-row checkpointing -- same class of effort as today's
 other `sdg_hub` monkey-patches but touches the core execution loop, not a single Block, so needs
 more care/testing.
+
+## 2026-10-14 -- fourth sandbox4001 node failure traced to a genuine memory leak; built a watchdog
+
+A fourth node failure in one day -- this time the very node the MachineHealthCheck had provisioned
+just 3 hours earlier to replace the first failure. User asked directly why this keeps happening on
+sandbox4001 and not sandbox2667, and to look for AWS-side tooling to find the actual cause.
+
+**Confirmed, not speculation**: checked AWS instance status for all 4 failed instances -- every
+single one reports `ok`/`passed` on every check (reachability, system, EBS). This was never a
+hardware/EC2 failure. Pulled Prometheus history for the 4th node before it went dark (the only
+reason this was possible: node-exporter kept scraping right up to near the end, unlike `oc debug
+node`, which couldn't even schedule a pod onto the node by the time anyone looked):
+`node_memory_AnonPages_bytes` (true process memory, not reclaimable cache) went from 12.76 GiB to
+52.95 GiB in 10 minutes, while `MemFree` crashed to near-zero. Checked every individual container's
+memory on that node in the same window (all flat or decreasing), `kubelet.service`,
+`crio.service`, `ovs-vswitchd.service`, and the whole `system.slice` (all small, all flat, combined
+under 1.2 GiB) -- none of it explains where 40+ GiB went. Checked conntrack table size (~1,500
+entries, nowhere near exhaustion) to rule out a connection-tracking leak. Cross-checked with basic
+(no-agent) EC2 CloudWatch metrics: CPU jumped from an ~8% baseline to 40-53% in the exact same
+window, then network throughput collapsed as the node died -- consistent with a process actively
+busy-looping while allocating (a crash-restart-and-leak-more cycle, or a retry storm), not a slow
+idle leak.
+
+**What AWS-side tooling could NOT provide**: checked for the CloudWatch agent (`CWAgent` metrics
+namespace -- empty, never installed) and SSM Session Manager (`describe-instance-information` --
+empty, no instances registered). Neither exists on these RHCOS nodes, so there was never an
+AWS-level memory metric stream, and there's no shell path into a node that's independent of
+kubelet's own health -- exactly the thing failing. AWS Health events: nothing relevant (only old,
+unrelated-region entries).
+
+**Root cause of the actual process/subsystem responsible is still not identified** -- that needs
+live `dmesg`/process-level data from the moment it's happening, and by the time anyone notices, the
+node is too far gone for `oc debug node` to schedule a pod (confirmed live, twice) or for MHC's
+remediation (which deletes and replaces the Machine) to leave anything behind to examine.
+
+**Built `cluster/openshift/memory-watchdog.py` + `memory-watchdog-daemonset.yaml`** to catch this
+proactively next time: a DaemonSet on every node (not just workers -- one of the 4 failures hit a
+control-plane node) polling `/proc/meminfo` every 15s. Uses `hostPID: true` only -- no hostPath
+mounts of `/proc` or `/dev` -- confirmed live via a throwaway test pod that with hostPID, the
+container's own already-present `ps`/`dmesg` binaries transparently reflect the host, which is a
+narrower SCC surface than hostPath mounting host filesystems directly. On detecting the confirmed
+signature (AnonPages growing >=5GiB within 60s, or available memory dropping below 15%), it
+captures `ps aux --sort=-rss` and `dmesg -T` and writes them into a ConfigMap, not a local file or
+`oc logs` -- both of the latter live on/through the dying node, exactly what's unavailable once a
+node is too far gone. ConfigMaps live in etcd, replicated across control-plane nodes, so they
+survive the node being fully replaced afterward. Verified live: all 5 pods `1/1 Running`, correctly
+reading real host meminfo (confirmed against a known-healthy node's actual values), and the
+ConfigMap-write path (RBAC + `oc apply` from inside the pod) verified end-to-end with a manual test
+write before relying on it for a real trigger.
+
+Custom SCC (`memory-watchdog`, `allowHostPID: true`, capabilities limited to `SYS_PTRACE`+`SYSLOG`,
+not full `privileged`) -- deliberately narrower than `nextgcore-upf`'s or `privileged`'s blanket
+grants, since this only needs to read `/proc` and the kernel ring buffer, not create network
+devices or modify the host.
