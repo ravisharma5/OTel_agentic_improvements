@@ -55,15 +55,29 @@ spec:
   # occurrence) -- this limit doesn't fix the leak, it bounds the blast
   # radius: Kubernetes' own OOM-killer now restarts a leaking instance at a
   # few GiB instead of letting it consume the whole node.
+  #
+  # 2026-10-14, later same day: the 2Gi limit above IS correctly enforced
+  # (confirmed from the host: reading the real cgroup's memory.max showed
+  # exactly 2147483648 bytes) -- a 5th sandbox4001 node death that day
+  # traced back to a pod instance that predated this patch's rollout, not a
+  # bypass of the limit. But a *fresh* pod under the 2Gi cap was already at
+  # ~99% of it within ~10 minutes of starting, flat/idle, with zero
+  # SSH/CLI traffic -- SR Linux's own baseline (nested dockerd/containerd
+  # plus ~30 internal json_rpc_server_main worker processes) eats nearly
+  # the whole 2Gi by itself. That's too little headroom: any real CLI/SSH
+  # load pushes it over and triggers a container OOM-restart (safe, but
+  # disruptive to in-flight pipeline tool calls). Bumped to 4Gi/2 CPU so a
+  # leak has somewhere to grow into before getting killed, instead of
+  # living permanently at the edge.
   deployment:
     resources:
       default:
         requests:
           cpu: 200m
-          memory: 512Mi
+          memory: 1Gi
         limits:
-          cpu: "1"
-          memory: 2Gi
+          cpu: "2"
+          memory: 4Gi
   definition:
     containerlab: "# Containerlab topology for MCP-Telecom basic 3-node Nokia SRL\
       \ ring\n# Generated from ContainerlabManager.generate_test_scenario(\"basic\"\
