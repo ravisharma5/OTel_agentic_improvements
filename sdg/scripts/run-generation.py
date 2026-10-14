@@ -51,6 +51,7 @@ try:
     from sdg_hub.core.utils.error_handling import EmptyDatasetError
     from sdg.lib.streaming_llm_chat_block import patch_llm_chat_block_for_streaming
     from sdg.lib.debug_filter_rejections import patch_column_value_filter_for_diagnostics
+    from sdg.lib.retrying_http_client import patch_http_client_for_5xx_retry
 
     # Swap every LLMChatBlock in any loaded flow for a streaming-aware one --
     # see streaming_llm_chat_block.py for why (AWS ELB idle-connection
@@ -64,6 +65,14 @@ try:
     # of just a row/column count, which checkpointing can't surface since
     # filtered-to-zero rows never get checkpointed in the first place.
     patch_column_value_filter_for_diagnostics()
+    # 2026-10-14: retry 5xx errors from AgentBlock's connector, not just
+    # connection failures -- see retrying_http_client.py's module docstring.
+    # Confirmed live: a single transient HTTP 500/503 (a node-failure
+    # cascade, a WASM-plugin reload race) on the last of 20
+    # run_expert_trajectory agent calls discarded all 19 already-completed
+    # calls for that seed, repeatedly, because sdg_hub's existing retry
+    # infrastructure never covered HTTP status errors at all.
+    patch_http_client_for_5xx_retry()
 except ImportError:
     FlowRegistry = None  # type: ignore[assignment,misc]
     Flow = None  # type: ignore[assignment,misc]
