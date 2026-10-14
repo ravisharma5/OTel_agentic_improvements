@@ -3016,11 +3016,11 @@
         },
         "compressionType": {
           "$ref": "#/definitions/CompressionType",
-          "example": "gzip"
+          "example": {"compressionEnumType": "gzip"}
         },
         "packingType": {
           "$ref": "#/definitions/PackingType",
-          "example": "tar"
+          "example": {"packingEnumType": "TAR"}
         },
         "retentionPeriod": {
           "$ref": "#/definitions/Duration"
@@ -5408,7 +5408,7 @@
         "code": {
           "type": "string",
           "description": "Application relevant detail, defined in the API or a common list.",
-          "example": 42
+          "example": "42"
         },
         "reason": {
           "type": "string",
