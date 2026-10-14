@@ -312,6 +312,22 @@ def sdg_production_pipeline(
         # stay uncached (cheap, no live-model cost, always want fresh output
         # reflecting whatever tier artifacts actually exist).
         t.set_caching_options(True)
+        # 2026-10-14: retry on task failure (04-LEARNINGS.md) -- a node failure
+        # mid-tier (confirmed to happen twice this project: sandbox4001 worker
+        # node kubelet hangs) previously killed the whole task outright with no
+        # automatic recovery, forcing a full manual resubmit. generate_tier's own
+        # checkpoint-recovery fix (run-generation.py, 2026-10-13) already makes a
+        # fresh process attempt resume from the last completed row via the shared
+        # sdg-checkpoints PVC, so a KFP-level retry of the whole task is cheap --
+        # it re-enters run-generation.py, which reads back existing checkpoint_*
+        # .jsonl files and continues, rather than regenerating from row 0. 3
+        # retries with exponential backoff starting at 30s covers a transient
+        # node hiccup or the application-level Envoy WASM-plugin race hit
+        # 2026-10-14 without masking a genuinely, persistently broken backend
+        # (a dead gateway for the full ~4min backoff window across 3 attempts
+        # is well past any of this project's observed transient-failure
+        # durations).
+        t.set_retry(num_retries=3, backoff_duration="30s", backoff_factor=2.0, backoff_max_duration="600s")
         t.set_cpu_request("250m").set_cpu_limit("1").set_memory_request("512Mi").set_memory_limit("1Gi")
         _wire_env(t)
         # 2026-10-13: mount the checkpoint PVC (sdg/openshift/sdg-checkpoints-pvc.yaml,

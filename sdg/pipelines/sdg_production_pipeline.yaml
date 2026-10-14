@@ -211,10 +211,6 @@ deploymentSpec:
           cpuRequest: 0.25
           memoryLimit: 1.073741824
           memoryRequest: 0.536870912
-          resourceCpuLimit: '1'
-          resourceCpuRequest: 250m
-          resourceMemoryLimit: 1Gi
-          resourceMemoryRequest: 512Mi
     exec-generate-tier:
       container:
         args:
@@ -247,10 +243,6 @@ deploymentSpec:
           cpuRequest: 0.25
           memoryLimit: 1.073741824
           memoryRequest: 0.536870912
-          resourceCpuLimit: '1'
-          resourceCpuRequest: 250m
-          resourceMemoryLimit: 1Gi
-          resourceMemoryRequest: 512Mi
     exec-generate-tier-2:
       container:
         args:
@@ -283,10 +275,6 @@ deploymentSpec:
           cpuRequest: 0.25
           memoryLimit: 1.073741824
           memoryRequest: 0.536870912
-          resourceCpuLimit: '1'
-          resourceCpuRequest: 250m
-          resourceMemoryLimit: 1Gi
-          resourceMemoryRequest: 512Mi
     exec-generate-tier-3:
       container:
         args:
@@ -319,10 +307,6 @@ deploymentSpec:
           cpuRequest: 0.25
           memoryLimit: 1.073741824
           memoryRequest: 0.536870912
-          resourceCpuLimit: '1'
-          resourceCpuRequest: 250m
-          resourceMemoryLimit: 1Gi
-          resourceMemoryRequest: 512Mi
     exec-generate-tier-4:
       container:
         args:
@@ -355,10 +339,6 @@ deploymentSpec:
           cpuRequest: 0.25
           memoryLimit: 1.073741824
           memoryRequest: 0.536870912
-          resourceCpuLimit: '1'
-          resourceCpuRequest: 250m
-          resourceMemoryLimit: 1Gi
-          resourceMemoryRequest: 512Mi
     exec-generate-tier-5:
       container:
         args:
@@ -391,10 +371,6 @@ deploymentSpec:
           cpuRequest: 0.25
           memoryLimit: 1.073741824
           memoryRequest: 0.536870912
-          resourceCpuLimit: '1'
-          resourceCpuRequest: 250m
-          resourceMemoryLimit: 1Gi
-          resourceMemoryRequest: 512Mi
 pipelineInfo:
   description: Generate telecom tool-calling training examples per tier (tool-coverage
     gated, one artifact per tier), report coverage, and run three-stage evaluation
@@ -585,7 +561,7 @@ root:
         isOptional: true
         parameterType: STRING
 schemaVersion: 2.1.0
-sdkVersion: kfp-2.17.0
+sdkVersion: kfp-2.9.0
 ---
 platforms:
   kubernetes:
@@ -596,274 +572,145 @@ platforms:
           - keyToEnv:
             - envVar: CLIENT_SECRET
               secretKey: CLIENT_SECRET
-            optional: false
             secretName: keycloak-client-secret-sdg-pipeline
-            secretNameParameter:
-              runtimeValue:
-                constant: keycloak-client-secret-sdg-pipeline
           - keyToEnv:
             - envVar: VLLM_API_KEY
               secretKey: api-key
-            optional: false
             secretName: maas-rhdp-api-key
-            secretNameParameter:
-              runtimeValue:
-                constant: maas-rhdp-api-key
           - keyToEnv:
             - envVar: LANGFLOW_API_KEY
               secretKey: LANGFLOW_API_KEY
-            optional: false
             secretName: langflow-api-key-sdg-pipeline
-            secretNameParameter:
-              runtimeValue:
-                constant: langflow-api-key-sdg-pipeline
           - keyToEnv:
             - envVar: GEMINI_API_KEY
               secretKey: GEMINI_API_KEY
-            optional: false
             secretName: gemini-api-key
-            secretNameParameter:
-              runtimeValue:
-                constant: gemini-api-key
           secretAsVolume:
           - mountPath: /var/run/secrets/gcp
             optional: false
             secretName: gcp-vertex-sa-key
-            secretNameParameter:
-              runtimeValue:
-                constant: gcp-vertex-sa-key
         exec-generate-tier:
           pvcMount:
           - constant: sdg-checkpoints
             mountPath: /checkpoints
-            pvcNameParameter:
-              runtimeValue:
-                constant: sdg-checkpoints
           secretAsEnv:
           - keyToEnv:
             - envVar: CLIENT_SECRET
               secretKey: CLIENT_SECRET
-            optional: false
             secretName: keycloak-client-secret-sdg-pipeline
-            secretNameParameter:
-              runtimeValue:
-                constant: keycloak-client-secret-sdg-pipeline
           - keyToEnv:
             - envVar: VLLM_API_KEY
               secretKey: api-key
-            optional: false
             secretName: maas-rhdp-api-key
-            secretNameParameter:
-              runtimeValue:
-                constant: maas-rhdp-api-key
           - keyToEnv:
             - envVar: LANGFLOW_API_KEY
               secretKey: LANGFLOW_API_KEY
-            optional: false
             secretName: langflow-api-key-sdg-pipeline
-            secretNameParameter:
-              runtimeValue:
-                constant: langflow-api-key-sdg-pipeline
           - keyToEnv:
             - envVar: GEMINI_API_KEY
               secretKey: GEMINI_API_KEY
-            optional: false
             secretName: gemini-api-key
-            secretNameParameter:
-              runtimeValue:
-                constant: gemini-api-key
           secretAsVolume:
           - mountPath: /var/run/secrets/gcp
             optional: false
             secretName: gcp-vertex-sa-key
-            secretNameParameter:
-              runtimeValue:
-                constant: gcp-vertex-sa-key
         exec-generate-tier-2:
           pvcMount:
           - constant: sdg-checkpoints
             mountPath: /checkpoints
-            pvcNameParameter:
-              runtimeValue:
-                constant: sdg-checkpoints
           secretAsEnv:
           - keyToEnv:
             - envVar: CLIENT_SECRET
               secretKey: CLIENT_SECRET
-            optional: false
             secretName: keycloak-client-secret-sdg-pipeline
-            secretNameParameter:
-              runtimeValue:
-                constant: keycloak-client-secret-sdg-pipeline
           - keyToEnv:
             - envVar: VLLM_API_KEY
               secretKey: api-key
-            optional: false
             secretName: maas-rhdp-api-key
-            secretNameParameter:
-              runtimeValue:
-                constant: maas-rhdp-api-key
           - keyToEnv:
             - envVar: LANGFLOW_API_KEY
               secretKey: LANGFLOW_API_KEY
-            optional: false
             secretName: langflow-api-key-sdg-pipeline
-            secretNameParameter:
-              runtimeValue:
-                constant: langflow-api-key-sdg-pipeline
           - keyToEnv:
             - envVar: GEMINI_API_KEY
               secretKey: GEMINI_API_KEY
-            optional: false
             secretName: gemini-api-key
-            secretNameParameter:
-              runtimeValue:
-                constant: gemini-api-key
           secretAsVolume:
           - mountPath: /var/run/secrets/gcp
             optional: false
             secretName: gcp-vertex-sa-key
-            secretNameParameter:
-              runtimeValue:
-                constant: gcp-vertex-sa-key
         exec-generate-tier-3:
           pvcMount:
           - constant: sdg-checkpoints
             mountPath: /checkpoints
-            pvcNameParameter:
-              runtimeValue:
-                constant: sdg-checkpoints
           secretAsEnv:
           - keyToEnv:
             - envVar: CLIENT_SECRET
               secretKey: CLIENT_SECRET
-            optional: false
             secretName: keycloak-client-secret-sdg-pipeline
-            secretNameParameter:
-              runtimeValue:
-                constant: keycloak-client-secret-sdg-pipeline
           - keyToEnv:
             - envVar: VLLM_API_KEY
               secretKey: api-key
-            optional: false
             secretName: maas-rhdp-api-key
-            secretNameParameter:
-              runtimeValue:
-                constant: maas-rhdp-api-key
           - keyToEnv:
             - envVar: LANGFLOW_API_KEY
               secretKey: LANGFLOW_API_KEY
-            optional: false
             secretName: langflow-api-key-sdg-pipeline
-            secretNameParameter:
-              runtimeValue:
-                constant: langflow-api-key-sdg-pipeline
           - keyToEnv:
             - envVar: GEMINI_API_KEY
               secretKey: GEMINI_API_KEY
-            optional: false
             secretName: gemini-api-key
-            secretNameParameter:
-              runtimeValue:
-                constant: gemini-api-key
           secretAsVolume:
           - mountPath: /var/run/secrets/gcp
             optional: false
             secretName: gcp-vertex-sa-key
-            secretNameParameter:
-              runtimeValue:
-                constant: gcp-vertex-sa-key
         exec-generate-tier-4:
           pvcMount:
           - constant: sdg-checkpoints
             mountPath: /checkpoints
-            pvcNameParameter:
-              runtimeValue:
-                constant: sdg-checkpoints
           secretAsEnv:
           - keyToEnv:
             - envVar: CLIENT_SECRET
               secretKey: CLIENT_SECRET
-            optional: false
             secretName: keycloak-client-secret-sdg-pipeline
-            secretNameParameter:
-              runtimeValue:
-                constant: keycloak-client-secret-sdg-pipeline
           - keyToEnv:
             - envVar: VLLM_API_KEY
               secretKey: api-key
-            optional: false
             secretName: maas-rhdp-api-key
-            secretNameParameter:
-              runtimeValue:
-                constant: maas-rhdp-api-key
           - keyToEnv:
             - envVar: LANGFLOW_API_KEY
               secretKey: LANGFLOW_API_KEY
-            optional: false
             secretName: langflow-api-key-sdg-pipeline
-            secretNameParameter:
-              runtimeValue:
-                constant: langflow-api-key-sdg-pipeline
           - keyToEnv:
             - envVar: GEMINI_API_KEY
               secretKey: GEMINI_API_KEY
-            optional: false
             secretName: gemini-api-key
-            secretNameParameter:
-              runtimeValue:
-                constant: gemini-api-key
           secretAsVolume:
           - mountPath: /var/run/secrets/gcp
             optional: false
             secretName: gcp-vertex-sa-key
-            secretNameParameter:
-              runtimeValue:
-                constant: gcp-vertex-sa-key
         exec-generate-tier-5:
           pvcMount:
           - constant: sdg-checkpoints
             mountPath: /checkpoints
-            pvcNameParameter:
-              runtimeValue:
-                constant: sdg-checkpoints
           secretAsEnv:
           - keyToEnv:
             - envVar: CLIENT_SECRET
               secretKey: CLIENT_SECRET
-            optional: false
             secretName: keycloak-client-secret-sdg-pipeline
-            secretNameParameter:
-              runtimeValue:
-                constant: keycloak-client-secret-sdg-pipeline
           - keyToEnv:
             - envVar: VLLM_API_KEY
               secretKey: api-key
-            optional: false
             secretName: maas-rhdp-api-key
-            secretNameParameter:
-              runtimeValue:
-                constant: maas-rhdp-api-key
           - keyToEnv:
             - envVar: LANGFLOW_API_KEY
               secretKey: LANGFLOW_API_KEY
-            optional: false
             secretName: langflow-api-key-sdg-pipeline
-            secretNameParameter:
-              runtimeValue:
-                constant: langflow-api-key-sdg-pipeline
           - keyToEnv:
             - envVar: GEMINI_API_KEY
               secretKey: GEMINI_API_KEY
-            optional: false
             secretName: gemini-api-key
-            secretNameParameter:
-              runtimeValue:
-                constant: gemini-api-key
           secretAsVolume:
           - mountPath: /var/run/secrets/gcp
             optional: false
             secretName: gcp-vertex-sa-key
-            secretNameParameter:
-              runtimeValue:
-                constant: gcp-vertex-sa-key
