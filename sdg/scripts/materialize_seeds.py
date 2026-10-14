@@ -25,6 +25,7 @@ References:
 from __future__ import annotations
 
 import argparse
+import itertools
 import json
 import os
 import sys
@@ -289,35 +290,66 @@ def materialize_tool_seeds(
             scenarios = tier_config.get("scenarios", [])
 
             for scenario in scenarios:
-                scenario_name = scenario.get("name") or f"{tier_name}_unnamed_{records_written}"
+                scenario_name_base = scenario.get("name") or f"{tier_name}_unnamed_{records_written}"
                 tool_subset = scenario.get("tool_subset", [])
-                scenario_desc = scenario.get("description", "")
+                scenario_desc_template = scenario.get("description", "")
+                parameters = scenario.get("parameters") or {}
 
-                # Resolve tool metadata for each tool in the subset against
-                # the live gateway -- fail loudly on any miss (see docstring).
+                # Resolve tool metadata once per scenario -- the tool_subset
+                # doesn't vary across parameter values, only the description.
                 resolved_tools = []
                 for tool_name in tool_subset:
                     if tool_name not in tool_map:
-                        unresolved.append(f"{scenario_name}: {tool_name}")
+                        unresolved.append(f"{scenario_name_base}: {tool_name}")
                         continue
                     resolved_tools.append(tool_map[tool_name])
 
-                record = {
-                    "mcp_server_name": scenario_name,
-                    "mcp_server_description": (
-                        f"Telecom NOC fault-prediction tool collection for: {scenario_desc}"
-                    ),
-                    "tool_list": resolved_tools,
-                    # Passthrough tracking columns -- not part of sdg_hub's
-                    # schema, consumed by tool_coverage_report.py.
-                    "tier": tier_name,
-                    "complexity": complexity,
-                    "scenario_name": scenario_name,
-                    "intended_tools": tool_subset,
-                }
+                # 2026-10-14: `parameters` was dead code -- confirmed live that
+                # every scenario declaring it (10 across the file) had its
+                # description's {placeholder} passed through completely
+                # unfilled, e.g. the literal string "Get network analytics
+                # for {analytics_type}" reaching the Agent verbatim. Gemini
+                # was quietly inventing its own values from the tool's schema
+                # instead of using the ones actually declared here, which is
+                # part of why single_get_nwdaf_analytics kept generating
+                # questions about event types NextGCore's NWDAF doesn't
+                # support. Expands into one seed row per parameter value
+                # (not just one filled-in row) -- parameters are lists of
+                # options, and real variation at the seed level (not just
+                # multiply_tool_rows' later resampling of one fixed
+                # description) was the apparent intent of declaring several.
+                if parameters:
+                    keys = list(parameters.keys())
+                    combinations = list(itertools.product(*(parameters[k] for k in keys)))
+                else:
+                    keys = []
+                    combinations = [()]
 
-                out.write(json.dumps(record) + "\n")
-                records_written += 1
+                for combo in combinations:
+                    if combo:
+                        combo_dict = dict(zip(keys, combo))
+                        scenario_desc = scenario_desc_template.format(**combo_dict)
+                        scenario_name = f"{scenario_name_base}_{'_'.join(str(v) for v in combo)}"
+                    else:
+                        scenario_desc = scenario_desc_template
+                        scenario_name = scenario_name_base
+
+                    record = {
+                        "mcp_server_name": scenario_name,
+                        "mcp_server_description": (
+                            f"Telecom NOC fault-prediction tool collection for: {scenario_desc}"
+                        ),
+                        "tool_list": resolved_tools,
+                        # Passthrough tracking columns -- not part of sdg_hub's
+                        # schema, consumed by tool_coverage_report.py.
+                        "tier": tier_name,
+                        "complexity": complexity,
+                        "scenario_name": scenario_name,
+                        "intended_tools": tool_subset,
+                    }
+
+                    out.write(json.dumps(record) + "\n")
+                    records_written += 1
 
     if unresolved:
         raise ValueError(

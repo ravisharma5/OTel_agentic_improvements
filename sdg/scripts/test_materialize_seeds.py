@@ -79,7 +79,10 @@ class TestRowShapeMatchesSdgHubContract:
         materialize_tool_seeds(live_tools, seed_scenarios_file, out_path)
         rows = [json.loads(line) for line in out_path.read_text().splitlines()]
 
-        single = next(r for r in rows if r["scenario_name"] == "single_check_alarms")
+        # "critical" suffix: the fixture's single parameter value, substituted
+        # into the scenario name -- see TestParameterSubstitution below for
+        # the expansion behavior itself.
+        single = next(r for r in rows if r["scenario_name"] == "single_check_alarms_critical")
         assert single["tool_list"] == [
             {"name": "tmf642listAlarm", "description": "List or find Alarm objects", "inputSchema": {"type": "object"}}
         ]
@@ -99,8 +102,13 @@ class TestRowShapeMatchesSdgHubContract:
         out_path = tmp_path / "out.jsonl"
         materialize_tool_seeds(live_tools, seed_scenarios_file, out_path)
         rows = [json.loads(line) for line in out_path.read_text().splitlines()]
-        single = next(r for r in rows if r["scenario_name"] == "single_check_alarms")
-        assert "Check for {severity} alarms" in single["mcp_server_description"]
+        single = next(r for r in rows if r["scenario_name"] == "single_check_alarms_critical")
+        # The {severity} placeholder must be substituted with the real value,
+        # not passed through to the Agent unfilled -- 2026-10-14 live finding:
+        # an unfilled "{analytics_type}"-style placeholder was silently
+        # reaching Gemini verbatim, which then invented its own values.
+        assert "Check for critical alarms" in single["mcp_server_description"]
+        assert "{severity}" not in single["mcp_server_description"]
 
 
 class TestPassthroughTrackingColumns:
@@ -109,7 +117,7 @@ class TestPassthroughTrackingColumns:
         materialize_tool_seeds(live_tools, seed_scenarios_file, out_path)
         rows = [json.loads(line) for line in out_path.read_text().splitlines()]
 
-        single = next(r for r in rows if r["scenario_name"] == "single_check_alarms")
+        single = next(r for r in rows if r["scenario_name"] == "single_check_alarms_critical")
         assert single["tier"] == "single_tool"
         assert single["complexity"] == 1
         assert single["intended_tools"] == ["tmf642listAlarm"]
@@ -118,6 +126,100 @@ class TestPassthroughTrackingColumns:
         assert closed["tier"] == "closed_loop"
         assert closed["complexity"] == 5
         assert closed["intended_tools"] == ["tmf642listAlarm", "nwdafget_nwdaf_analytics"]
+
+
+class TestParameterSubstitution:
+    """2026-10-14: `parameters` was dead code -- materialize_tool_seeds()
+    never read it, so every scenario declaring it had its description's
+    {placeholder} reach the Agent completely unfilled. Confirmed live this
+    was why single_get_nwdaf_analytics kept generating questions about event
+    types NextGCore's NWDAF doesn't support (Gemini filled the gap itself
+    from the tool's schema instead of the values declared here). Fix expands
+    each scenario into one seed row per parameter value (not just one
+    filled-in row), since a list of options implies real variation is
+    wanted, not a single arbitrary pick."""
+
+    @pytest.fixture()
+    def multi_value_scenarios_file(self, tmp_path):
+        config = {
+            "tiers": {
+                "single_tool": {
+                    "complexity": 1,
+                    "description": "Single-tool calls",
+                    "scenarios": [
+                        {
+                            "name": "single_check_alarms",
+                            "tool_subset": ["tmf642listAlarm"],
+                            "description": "Check for {severity} alarms",
+                            "parameters": {"severity": ["critical", "major", "minor"]},
+                        },
+                    ],
+                },
+            }
+        }
+        path = tmp_path / "seed-scenarios.yaml"
+        path.write_text(yaml.dump(config))
+        return path
+
+    def test_expands_one_row_per_parameter_value(self, live_tools, multi_value_scenarios_file, tmp_path) -> None:
+        out_path = tmp_path / "out.jsonl"
+        count = materialize_tool_seeds(live_tools, multi_value_scenarios_file, out_path)
+        assert count == 3
+
+        rows = [json.loads(line) for line in out_path.read_text().splitlines()]
+        names = {r["scenario_name"] for r in rows}
+        assert names == {
+            "single_check_alarms_critical",
+            "single_check_alarms_major",
+            "single_check_alarms_minor",
+        }
+
+    def test_each_row_has_its_own_substituted_description(
+        self, live_tools, multi_value_scenarios_file, tmp_path
+    ) -> None:
+        out_path = tmp_path / "out.jsonl"
+        materialize_tool_seeds(live_tools, multi_value_scenarios_file, out_path)
+        rows = [json.loads(line) for line in out_path.read_text().splitlines()]
+
+        by_name = {r["scenario_name"]: r for r in rows}
+        assert "Check for critical alarms" in by_name["single_check_alarms_critical"]["mcp_server_description"]
+        assert "Check for major alarms" in by_name["single_check_alarms_major"]["mcp_server_description"]
+        assert "Check for minor alarms" in by_name["single_check_alarms_minor"]["mcp_server_description"]
+
+    def test_mcp_server_name_matches_scenario_name_per_expanded_row(
+        self, live_tools, multi_value_scenarios_file, tmp_path
+    ) -> None:
+        out_path = tmp_path / "out.jsonl"
+        materialize_tool_seeds(live_tools, multi_value_scenarios_file, out_path)
+        rows = [json.loads(line) for line in out_path.read_text().splitlines()]
+        for row in rows:
+            assert row["mcp_server_name"] == row["scenario_name"]
+
+    def test_no_parameters_produces_single_unsuffixed_row(self, live_tools, tmp_path) -> None:
+        """Scenarios without `parameters` (or with an empty dict) must keep
+        their plain name, unaffected by this change."""
+        config = {
+            "tiers": {
+                "closed_loop": {
+                    "complexity": 5,
+                    "description": "Observe-decide-act cycles",
+                    "scenarios": [
+                        {
+                            "name": "closed_loop_example",
+                            "tool_subset": ["tmf642listAlarm"],
+                            "description": "Detect and remediate",
+                        },
+                    ],
+                },
+            }
+        }
+        path = tmp_path / "seed-scenarios.yaml"
+        path.write_text(yaml.dump(config))
+        out_path = tmp_path / "out.jsonl"
+        count = materialize_tool_seeds(live_tools, path, out_path)
+        assert count == 1
+        rows = [json.loads(line) for line in out_path.read_text().splitlines()]
+        assert rows[0]["scenario_name"] == "closed_loop_example"
 
 
 class TestFailsLoudOnUnresolvedTool:

@@ -62,8 +62,19 @@ tiers:
       - name: single_get_nwdaf_analytics
         tool_subset: [nwdafget_nwdaf_analytics]
         description: "Get network analytics for {analytics_type}"
+        # 2026-10-14: narrowed to NF_LOAD only. UE_MOBILITY and
+        # QOS_SUSTAINABILITY were here before, but UE_MOBILITY was directly
+        # confirmed to return empty data (HTTP 204) even with live UE/PDU
+        # traffic flowing during Phase 1's validation
+        # (01-02-nwdaf-validation-findings.md) -- NF_LOAD is the only event
+        # type that validation ever got real data back for.
+        # QOS_SUSTAINABILITY was never confirmed working either. This was
+        # also dead code until now (see materialize_seeds.py's parameter
+        # substitution fix, same date) -- the live pipeline was generating
+        # questions about SERVICE_EXPERIENCE/NETWORK_PERFORMANCE/etc.,
+        # none of which were ever in this list or confirmed supported.
         parameters:
-          analytics_type: [NF_LOAD, UE_MOBILITY, QOS_SUSTAINABILITY]
+          analytics_type: [NF_LOAD]
 
       - name: single_verify_device_location
         tool_subset: [camaraverify_location]
