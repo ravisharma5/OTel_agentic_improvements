@@ -772,3 +772,24 @@ resolved this differently. Not investigated further since the current fix is con
 this StatefulSet isn't a committed manifest in this repo (Helm-installed, live-patched throughout
 today) -- if `langflow-service` is ever recreated from the Helm chart fresh, remember these two env
 vars are required and won't come from the chart's own defaults.
+
+## 2026-10-13 -- Gemini Developer API backend (Vertex AI Beta) had a sustained 503 outage window
+
+Run `dnmnd` (resubmitted after the checkpoint-recovery fix below) failed with `litellm.
+MidStreamFallbackError: litellm.ServiceUnavailableError: Vertex_ai_betaException - ... "code": 503,
+"message": "The service is currently unavailable."` on `score_question_quality`. Confirmed
+`flow-training.yaml`'s `model_config.model` is still correctly `gemini/gemini-3.8-flash` (not
+reverted to `vertex_ai/...`) -- LiteLLM's `gemini/` provider apparently routes through a
+`vertex_ai_beta`-named backend internally regardless, so this exception class naming doesn't
+indicate an auth/config regression. 17 occurrences of this error in one run's log -- a sustained
+Google-side outage/overload window during this run, not a single transient blip. Nothing actionable
+on our end; this is the real-world first hit of the "unverified Gemini API rate limits/reliability at
+scale" risk flagged in `04-SCALE-UP-PLAN.md`. Retried (per standing user instruction) with no code
+change for this specific failure. If this recurs frequently at higher volume, worth adding
+LiteLLM-level retry/backoff specifically for 503s rather than letting it kill the whole tier attempt.
+
+Same resubmit also confirmed the vLLM router-scheduler pod restart (tried as a cheap fix for the
+4001m-vs-135m CPU imbalance between the 2 `redhataigemma-4-31b-it` replicas, see scale-up plan) did
+**not** fix it -- re-measured post-restart at 3999m vs 124m, essentially unchanged. The cheap fix
+didn't work; the scale-up plan's harder options (investigate the EPP scheduler's actual routing
+logic/config, or accept ~1x effective capacity from the 2 replicas) are the remaining paths.
