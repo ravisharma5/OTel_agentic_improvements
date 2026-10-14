@@ -12,6 +12,14 @@ class VendorType(str, Enum):
 
     NOKIA_SROS = "nokia_sros"
     NOKIA_SROS_TELNET = "nokia_sros_telnet"
+    # Value is "nokia_srl", not "nokia_srlinux" -- this gets passed straight
+    # through to Netmiko's ConnectHandler(device_type=...), whose actual
+    # supported platform key for SR Linux is "nokia_srl" (confirmed live via
+    # netmiko.ssh_dispatcher.CLASS_MAPPER, 2026-10-14). "nokia_srlinux" is a
+    # separate namespace: that's the Containerlab "kind" string (see
+    # containerlab.py's VENDOR_TO_CLAB_KIND), unrelated to Netmiko's platform
+    # names -- don't conflate the two again.
+    NOKIA_SRLINUX = "nokia_srl"
     CISCO_IOS = "cisco_ios"
     CISCO_IOSXR = "cisco_xr"
     CISCO_NXOS = "cisco_nxos"

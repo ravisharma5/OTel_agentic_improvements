@@ -35,7 +35,7 @@
 
 r1:
   host: "mcp-telecom-basic-r1.c9s.svc.cluster.local"
-  device_type: "nokia_sros"
+  device_type: "nokia_srl"
   port: 22
   timeout: 30
   username: "admin"
@@ -43,7 +43,7 @@ r1:
 
 r2:
   host: "mcp-telecom-basic-r2.c9s.svc.cluster.local"
-  device_type: "nokia_sros"
+  device_type: "nokia_srl"
   port: 22
   timeout: 30
   username: "admin"
@@ -51,7 +51,7 @@ r2:
 
 r3:
   host: "mcp-telecom-basic-r3.c9s.svc.cluster.local"
-  device_type: "nokia_sros"
+  device_type: "nokia_srl"
   port: 22
   timeout: 30
   username: "admin"

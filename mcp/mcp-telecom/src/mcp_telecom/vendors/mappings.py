@@ -50,6 +50,70 @@ VENDOR_COMMANDS: dict[str, dict[str, str]] = {
     },
     VendorType.NOKIA_SROS_TELNET: {},  # same commands, inherits from SROS
 
+    # ── Nokia SR Linux ───────────────────────────────────────────
+    # 2026-10-14: added after devices.yaml's r1/r2/r3 (device_type:
+    # nokia_sros) turned out to actually be running SR Linux -- SR OS and
+    # SR Linux are different Nokia network OSes with incompatible CLI
+    # syntax (confirmed live: SR Linux rejects "show router bgp summary"
+    # with "Unknown token 'router'"). SR Linux's CLI is YANG-model-driven
+    # and structured as nested context trees, not SR OS's flatter
+    # "show router/service X" shape.
+    #
+    # Entries marked "verified live" were tested directly against the real
+    # device (telecomrun_command against r1, 2026-10-14) and returned
+    # clean output or an empty-but-valid result (e.g. "no BGP peers
+    # configured" in this test topology) -- not just "no parsing error",
+    # confirmed the full command path resolves. Entries marked "inferred"
+    # follow the same verified "network-instance default protocols
+    # <protocol> <verb>" pattern SR Linix's YANG model uses consistently
+    # (confirmed for bgp) but were not individually tested against a live
+    # protocol instance -- get_command() raises a clear ValueError for any
+    # operation not in this dict, so operations with no confident mapping
+    # (SR OS/7750-style service concepts like vprn/vpls/sap, which SR Linux
+    # models completely differently via network-instance/vxlan-interface)
+    # are deliberately omitted rather than guessed.
+    VendorType.NOKIA_SRLINUX: {
+        "bgp_summary": "show network-instance default protocols bgp summary",  # verified live
+        "bgp_neighbors": "show network-instance default protocols bgp neighbor",  # verified live
+        "interfaces": "show interface",  # verified live
+        "interface_detail": "show interface {interface}",  # verified live
+        "system_info": "show version",  # verified live -- "show system information" doesn't exist on SR Linux; show version covers hostname/chassis/serial/OS/last-booted
+        "uptime": "show version",  # verified live -- no separate uptime command found; "Last Booted" timestamp is in show version's output
+        "version": "show version",  # verified live
+        "lldp_neighbors": "show system lldp neighbor",  # verified live
+        # 2026-10-14 re-verified: the earlier "... route-table ipv4" mapping
+        # was wrong -- SR Linux rejects any token after "route-table"
+        # ("Unknown token 'ipv4'/'ipv4-unicast'/'summary'/'all'. Options are
+        # ['#', '>', '>>', '{', '|']"), confirming "route-table" alone is
+        # already the complete, terminal command. In this topology (no
+        # dynamic routing configured, consistent with bgp_summary also
+        # coming back empty) it renders a generic context-help string
+        # rather than a populated table -- that's this build's real
+        # behavior for an empty route table, not a parsing failure.
+        "routing_table": "show network-instance default route-table",  # verified live
+
+        "alarms": "show system alarms",  # verified live
+        "ospf_neighbors": "show network-instance default protocols ospf neighbor",  # inferred, same pattern as verified bgp path
+        "ospf_database": "show network-instance default protocols ospf database",  # inferred
+        "isis_adjacency": "show network-instance default protocols isis adjacency",  # inferred
+        "pim_neighbors": "show network-instance default protocols pim neighbor",  # inferred
+        "igmp_groups": "show network-instance default protocols igmp group",  # inferred
+        "chassis": "show platform chassis",  # inferred from the verified top-level "platform" token; blocked by command_allowlist.yaml until "show platform" is added there too
+        "arp_table": "show arpnd arp",  # inferred from the verified top-level "arpnd" token; blocked by command_allowlist.yaml until "show arpnd" is added there too
+        "log_events": "show system logging",  # inferred from the verified top-level "system" -> "logging" token
+        # Deliberately NOT mapped: config_running. SR Linix's confirmed
+        # top-level "show" tokens (acl, arpnd, interface, lag,
+        # network-instance, oam, platform, qos, subscriber-management,
+        # system, tunnel, tunnel-interface, version) have no
+        # "configuration"/"config" entry at all -- SR Linux's real
+        # running-config mechanism is a separate top-level `info` CLI verb,
+        # not a `show` command, which this project's allowlist/safety model
+        # (show/display/ping/traceroute prefixes only) doesn't support.
+        # Faking a `show running-config`-style mapping here would silently
+        # fail or return the wrong thing; see test_vendors.py's exclusion
+        # of this vendor from TestVendorCoverage for the same reason.
+    },
+
     # ── Cisco IOS / IOS-XE ──────────────────────────────────────
     VendorType.CISCO_IOS: {
         "bgp_summary": "show ip bgp summary",

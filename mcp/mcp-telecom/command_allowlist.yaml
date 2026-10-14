@@ -55,6 +55,13 @@ allowed_commands:
   - "show running-config"
   - "show startup-config"
   - "show inventory"
+  # 2026-10-14: SR Linux models chassis/environment info under a top-level
+  # "platform" context (not "show chassis" as the comment above's "SR OS /
+  # SR Linux" grouping assumed) and ARP/ND under "arpnd" -- confirmed live
+  # via SR Linux's own CLI error listing valid top-level tokens. Added for
+  # the new nokia_srlinux vendor mapping's chassis/arp_table operations.
+  - "show platform"
+  - "show arpnd"
 
   # --- Logging ---
   - "show log"

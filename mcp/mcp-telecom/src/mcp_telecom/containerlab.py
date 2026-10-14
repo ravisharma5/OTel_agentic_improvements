@@ -14,8 +14,15 @@ import yaml
 from mcp_telecom.models import DeviceInfo, VendorType
 
 VENDOR_TO_CLAB_KIND: dict[VendorType, str] = {
+    # NOKIA_SROS/_TELNET point at the srlinux kind/image too -- a real SR OS
+    # containerlab image isn't freely distributable, so srlinux was used as
+    # the closest available substitute. Predates this file's NOKIA_SRLINUX
+    # entry (2026-10-14); left as-is since it's a separate, intentional
+    # tradeoff, not the bug this entry fixes (devices.yaml's device_type
+    # mis-encoding -- see mappings.py's NOKIA_SRLINUX comment).
     VendorType.NOKIA_SROS: "nokia_srlinux",
     VendorType.NOKIA_SROS_TELNET: "nokia_srlinux",
+    VendorType.NOKIA_SRLINUX: "nokia_srlinux",
     VendorType.CISCO_IOSXR: "cisco_xrd",
     VendorType.CISCO_IOS: "cisco_iosxe",
     VendorType.CISCO_NXOS: "cisco_nxos",
@@ -26,6 +33,7 @@ VENDOR_TO_CLAB_KIND: dict[VendorType, str] = {
 CLAB_DEFAULT_IMAGES: dict[VendorType, str] = {
     VendorType.NOKIA_SROS: "ghcr.io/nokia/srlinux:latest",
     VendorType.NOKIA_SROS_TELNET: "ghcr.io/nokia/srlinux:latest",
+    VendorType.NOKIA_SRLINUX: "ghcr.io/nokia/srlinux:latest",
     VendorType.CISCO_IOSXR: "cisco/xrd-router:latest",
     VendorType.CISCO_IOS: "cisco/ios-xe:latest",
     VendorType.CISCO_NXOS: "cisco/nexus9300v:latest",
@@ -34,7 +42,14 @@ CLAB_DEFAULT_IMAGES: dict[VendorType, str] = {
 }
 
 CLAB_KIND_TO_DEVICE_TYPE: dict[str, str] = {
-    "nokia_srlinux": "nokia_sros",
+    # 2026-10-14: this "nokia_srlinux" -> "nokia_sros" entry is almost
+    # certainly how devices.yaml's r1/r2/r3 ended up with the wrong
+    # device_type in the first place -- generate_devices_yaml() reads each
+    # node's clab `kind` and looks it up here to produce `device_type`, so
+    # any SR Linux node auto-discovered this way got mis-mapped to SR OS's
+    # (incompatible) CLI syntax. Fixed to point at the real Netmiko platform
+    # key for SR Linux (see models.py's NOKIA_SRLINUX comment).
+    "nokia_srlinux": "nokia_srl",
     "vr-nokia_sros": "nokia_sros",
     "cisco_xrd": "cisco_xr",
     "vr-cisco_xrv9k": "cisco_xr",
@@ -242,24 +257,30 @@ class ContainerlabManager:
 
 
 def _scenario_basic() -> dict[str, Any]:
+    # 2026-10-14: was hardcoding "kind": "nokia_srlinux" while sourcing the
+    # image via VendorType.NOKIA_SROS -- same mismatch class as the
+    # devices.yaml bug this fix addresses. Uses the proper NOKIA_SRLINUX
+    # vendor type now, matching the other scenario builders' style of
+    # looking kind/image up through the vendor-type dicts instead of
+    # hardcoding strings.
     return {
         "name": "mcp-telecom-basic",
         "mgmt": {"network": "clab", "ipv4-subnet": DEFAULT_MGMT_SUBNET},
         "topology": {
             "nodes": {
                 "r1": {
-                    "kind": "nokia_srlinux",
-                    "image": CLAB_DEFAULT_IMAGES[VendorType.NOKIA_SROS],
+                    "kind": VENDOR_TO_CLAB_KIND[VendorType.NOKIA_SRLINUX],
+                    "image": CLAB_DEFAULT_IMAGES[VendorType.NOKIA_SRLINUX],
                     "startup-config": "configs/r1.cfg",
                 },
                 "r2": {
-                    "kind": "nokia_srlinux",
-                    "image": CLAB_DEFAULT_IMAGES[VendorType.NOKIA_SROS],
+                    "kind": VENDOR_TO_CLAB_KIND[VendorType.NOKIA_SRLINUX],
+                    "image": CLAB_DEFAULT_IMAGES[VendorType.NOKIA_SRLINUX],
                     "startup-config": "configs/r2.cfg",
                 },
                 "r3": {
-                    "kind": "nokia_srlinux",
-                    "image": CLAB_DEFAULT_IMAGES[VendorType.NOKIA_SROS],
+                    "kind": VENDOR_TO_CLAB_KIND[VendorType.NOKIA_SRLINUX],
+                    "image": CLAB_DEFAULT_IMAGES[VendorType.NOKIA_SRLINUX],
                     "startup-config": "configs/r3.cfg",
                 },
             },
