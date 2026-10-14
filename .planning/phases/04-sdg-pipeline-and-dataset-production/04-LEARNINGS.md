@@ -851,3 +851,43 @@ committed manifest or backup. If a future cluster migration happens again, re-ru
 `nextgcore-webui` provisioning step before trusting UDR-dependent scenarios -- it is not optional
 infra, it's seed data the pipeline silently degrades without (a clean `not_found` response, not an
 error, so nothing fails loudly if this is skipped).
+
+## 2026-10-14 -- Resubmitted pipeline failed on a recurring node NotReady; added a real MachineHealthCheck
+
+Resubmitting after the day's accumulated fixes (`q6lrh`) immediately hit the same node class of
+failure from earlier today: `ip-10-0-56-33` on sandbox4001 went `NotReady`
+("Kubelet stopped posting node status"), confirmed via AWS as a pure kubelet hang (all instance
+status checks `ok`/`passed`), not an infra failure. Fixed the same way as before
+(`aws ec2 reboot-instances`, OS-level soft reboot, no Node/Machine object touched).
+
+Investigated afterward why this needed manual intervention at all: it turns out most of it didn't --
+Kubernetes' default `node.kubernetes.io/not-ready:NoExecute` taint + each pod's default 300s
+toleration already evicted and rescheduled every affected Deployment-managed pod within ~5 minutes,
+automatically, before any manual investigation started (confirmed via timestamps: node NotReady at
+04:59:49 UTC, gateway's own "8/8 servers healthy" log at 05:05:13 UTC). What Kubernetes never does is
+heal or replace the dead node itself -- it only evacuates workloads from it. The cluster's only
+pre-existing MachineHealthCheck (`machine-api-termination-handler`, an OpenShift default) turned out
+to be scoped to spot-instance interruption handling only (`machine.openshift.io/interruptible-instance`
+selector) and was never watching general node-health conditions at all (`expectedMachines: 0`) --
+there was no automated remediation path for this exact, now-recurring failure mode.
+
+Added `cluster/openshift/machinehealthcheck-worker-nodes.yaml`: a new MHC scoped to worker-role
+machines only (excludes the 3 control-plane nodes -- auto-remediating a control-plane machine risks
+etcd quorum, a different and higher-blast-radius problem), triggering on `Ready=Unknown` or
+`Ready=False` for 300s (matching the exact signal hit twice), with `maxUnhealthy: 1` out of the pool's
+2 machines (so remediation proceeds for an isolated failure but is withheld if both go unhealthy at
+once, which more likely means a cluster-wide problem deserving a human, not a MHC-level disaster
+double-remediation).
+
+Deliberately did NOT make this a reusable "slap on every MachineSet" pattern: default MHC remediation
+deletes the Machine and lets the MachineSet provision a replacement EC2 instance -- a full replace,
+not an in-place reboot. That's safe for sandbox4001's worker nodes (`m6a.4xlarge`, a general-purpose
+type with ample capacity) but would be a real risk on sandbox2667's GPU nodes
+(`g6e.12xlarge`/`g5.12xlarge`), which this project has already hit genuine
+`InsufficientInstanceCapacity` errors for (04-SCALE-UP-PLAN.md) -- replacing one of those and failing
+to get a new one back would net-lose GPU capacity, worse than leaving a hung-but-still-present
+instance for a manual reboot. Any future MHC for GPU-bearing MachineSets needs that capacity risk
+re-evaluated first, not copied blindly from this one.
+
+Verified live: `currentHealthy: 2`, `expectedMachines: 2`, `remediationsAllowed: 1`,
+`RemediationAllowed: True` immediately after applying.

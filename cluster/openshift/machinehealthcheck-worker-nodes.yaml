@@ -1,0 +1,59 @@
+# MachineHealthCheck for sandbox4001's worker nodes.
+#
+# 2026-10-14: a worker node (ip-10-0-56-33, m6a.4xlarge) went NotReady with
+# "Kubelet stopped posting node status" -- confirmed via AWS that the
+# instance itself was healthy (all status checks "ok"/"passed"), so this was
+# a pure kubelet-level hang, not an infra failure. Kubernetes evicted and
+# rescheduled the affected pods onto healthy nodes automatically within the
+# default ~5min NoExecute toleration window, exactly as designed -- but the
+# dead node itself never self-heals; Kubernetes only evacuates a bad node,
+# it never repairs or replaces it. That was left to a one-off manual
+# `aws ec2 reboot-instances` call. The cluster's only pre-existing
+# MachineHealthCheck (machine-api-termination-handler, an OpenShift
+# default) is scoped to spot-instance interruption handling via the
+# `machine.openshift.io/interruptible-instance` label -- it was never
+# watching regular node-health conditions at all (confirmed:
+# `expectedMachines: 0`).
+#
+# This MHC closes that gap for worker nodes: same unhealthy signal we hit
+# (Ready=Unknown, i.e. a node that stops reporting) plus the complementary
+# Ready=False case, both at the same ~5min threshold pods already tolerate.
+# Default remediation (no custom remediation controller installed) deletes
+# the unhealthy Machine; the owning MachineSet then provisions a replacement
+# EC2 instance -- a full replace, not an in-place reboot, but the standard
+# and supported mechanism on OpenShift/AWS. Safe here because
+# m6a.4xlarge is a general-purpose instance type with ample AWS capacity --
+# NOT the g6e.12xlarge/g5.12xlarge GPU instance types this project has
+# separately (on sandbox2667) hit real InsufficientInstanceCapacity errors
+# for. Do not blindly copy this MHC onto a GPU-node MachineSet without
+# re-checking that capacity risk first.
+#
+# Deliberately scoped to worker-role machines only (matchLabels
+# cluster-api-machine-role: worker), excluding the 3 control-plane nodes --
+# auto-remediating a control-plane machine risks etcd quorum, a materially
+# different and higher-blast-radius failure mode than a worker node dying,
+# and isn't something a generic health check like this should handle.
+#
+# maxUnhealthy: 1 -- with only 2 machines in this worker MachineSet,
+# remediation proceeds for a single isolated failure but is withheld if
+# both machines go unhealthy at once (that pattern more likely indicates a
+# cluster/network-wide problem than two independent instance failures, and
+# should get human attention rather than an automatic double-replacement).
+apiVersion: machine.openshift.io/v1beta1
+kind: MachineHealthCheck
+metadata:
+  name: worker-node-health-check
+  namespace: openshift-machine-api
+spec:
+  selector:
+    matchLabels:
+      machine.openshift.io/cluster-api-cluster: cluster-vrwj7-dlslb
+      machine.openshift.io/cluster-api-machine-role: worker
+  maxUnhealthy: 1
+  unhealthyConditions:
+    - type: Ready
+      status: Unknown
+      timeout: 300s
+    - type: Ready
+      status: "False"
+      timeout: 300s
