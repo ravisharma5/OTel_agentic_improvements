@@ -464,6 +464,11 @@ root:
             tier:
               runtimeValue:
                 constant: single_tool
+        retryPolicy:
+          backoffDuration: 60s
+          backoffFactor: 2.0
+          backoffMaxDuration: 1200s
+          maxRetryCount: 5
         taskInfo:
           name: generate-tier
       generate-tier-2:
@@ -484,6 +489,11 @@ root:
             tier:
               runtimeValue:
                 constant: parallel
+        retryPolicy:
+          backoffDuration: 60s
+          backoffFactor: 2.0
+          backoffMaxDuration: 1200s
+          maxRetryCount: 5
         taskInfo:
           name: generate-tier-2
       generate-tier-3:
@@ -504,6 +514,11 @@ root:
             tier:
               runtimeValue:
                 constant: sequential
+        retryPolicy:
+          backoffDuration: 60s
+          backoffFactor: 2.0
+          backoffMaxDuration: 1200s
+          maxRetryCount: 5
         taskInfo:
           name: generate-tier-3
       generate-tier-4:
@@ -524,6 +539,11 @@ root:
             tier:
               runtimeValue:
                 constant: multi_turn
+        retryPolicy:
+          backoffDuration: 60s
+          backoffFactor: 2.0
+          backoffMaxDuration: 1200s
+          maxRetryCount: 5
         taskInfo:
           name: generate-tier-4
       generate-tier-5:
@@ -544,6 +564,11 @@ root:
             tier:
               runtimeValue:
                 constant: closed_loop
+        retryPolicy:
+          backoffDuration: 60s
+          backoffFactor: 2.0
+          backoffMaxDuration: 1200s
+          maxRetryCount: 5
         taskInfo:
           name: generate-tier-5
   inputDefinitions:

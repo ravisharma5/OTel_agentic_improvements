@@ -320,14 +320,22 @@ def sdg_production_pipeline(
         # fresh process attempt resume from the last completed row via the shared
         # sdg-checkpoints PVC, so a KFP-level retry of the whole task is cheap --
         # it re-enters run-generation.py, which reads back existing checkpoint_*
-        # .jsonl files and continues, rather than regenerating from row 0. 3
-        # retries with exponential backoff starting at 30s covers a transient
-        # node hiccup or the application-level Envoy WASM-plugin race hit
-        # 2026-10-14 without masking a genuinely, persistently broken backend
-        # (a dead gateway for the full ~4min backoff window across 3 attempts
-        # is well past any of this project's observed transient-failure
-        # durations).
-        t.set_retry(num_retries=3, backoff_duration="30s", backoff_factor=2.0, backoff_max_duration="600s")
+        # .jsonl files and continues, rather than regenerating from row 0.
+        #
+        # Sized against this project's two known, measured recovery windows, not
+        # guessed: Kubernetes' own default pod-eviction/reschedule after a node
+        # goes NotReady takes ~5min (the 300s NoExecute toleration), and the
+        # MachineHealthCheck added the same day (cluster/openshift/
+        # machinehealthcheck-worker-nodes.yaml) takes up to ~10-15min for a full
+        # node replacement (300s detection + EC2 provisioning/bootstrap). An
+        # earlier version of this retry policy (3 retries, 30s start, factor 2.0)
+        # exhausted all 3 attempts by T+210s (3.5min) -- entirely inside the
+        # 5min window, so it could never actually survive the exact failure it
+        # was written for. Retry delays below (60s, 120s, 240s, 480s, 960s) put
+        # retry 3 at T+7min (past the pod-reschedule window) and retry 4 at
+        # T+15min (at the MHC's node-replacement window), with retry 5 at
+        # T+31min as margin for a slower-than-usual AWS provisioning delay.
+        t.set_retry(num_retries=5, backoff_duration="60s", backoff_factor=2.0, backoff_max_duration="1200s")
         t.set_cpu_request("250m").set_cpu_limit("1").set_memory_request("512Mi").set_memory_limit("1Gi")
         _wire_env(t)
         # 2026-10-13: mount the checkpoint PVC (sdg/openshift/sdg-checkpoints-pvc.yaml,
