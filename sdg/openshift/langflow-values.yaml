@@ -1,0 +1,99 @@
+# Helm values for the langflow-ide chart (sandbox2667, namespace otel25-sdg),
+# reconstructed from the live StatefulSet after discovering that `helm get
+# values langflow -n otel25-sdg` only showed a handful of install-time
+# overrides (secretKey, superuser, superuserPassword, sqlite storage class).
+# The rest of this project's actual tuning -- worker count, resources,
+# external Postgres wiring, VLLM endpoint -- had been applied with `oc set
+# env` / `oc patch` directly against the live StatefulSet, bypassing Helm
+# entirely. That meant a `helm upgrade`/`helm rollback` on the untouched
+# release could have silently reverted all of it back to chart defaults
+# (1 worker, 0.5 CPU / 1Gi memory, SQLite) with no warning.
+#
+# This file makes that tuning a real Helm value so it survives upgrades.
+# It intentionally omits the two secret-bearing keys the chart has no
+# secretKeyRef support for (superuserPassword, secretKey) -- see the
+# `helm install`/`helm upgrade` command below, which generates and passes
+# them fresh via `--set` so they are never written to disk or committed.
+#
+# Chart: langflow-ide 0.1.2
+# Repo:  helm repo add langflow https://langflow-ai.github.io/langflow-helm-charts
+#
+# Install (fresh cluster):
+#   oc apply -f langflow-postgres.yaml          # external DB this file points at
+#   ./create-langflow-db-secret.sh otel25-sdg   # langflow-db-secret (username/password)
+#   # maas-rhdp-api-key must already exist in-namespace (shared with the KFP
+#   # pipeline tasks -- see sdg_production_pipeline.yaml) with an `api-key` field.
+#   helm install langflow langflow/langflow-ide --version 0.1.2 -n otel25-sdg \
+#     -f langflow-values.yaml \
+#     --set langflow.backend.superuserPassword="$(openssl rand -base64 24)" \
+#     --set langflow.backend.secretKey="$(openssl rand -base64 32)"
+#
+# Upgrade (apply this file to an already-running release without rotating
+# secrets -- --reuse-values keeps the superuserPassword/secretKey already
+# set on the release):
+#   helm upgrade langflow langflow/langflow-ide --version 0.1.2 -n otel25-sdg \
+#     -f langflow-values.yaml --reuse-values
+
+fullnameOverride: "langflow-service"
+
+langflow:
+  global:
+    image:
+      tag: "latest"
+
+  backend:
+    backendOnly: true
+    numWorkers: 16
+
+    resources:
+      requests:
+        cpu: "6"
+        memory: 12Gi
+      limits:
+        cpu: "12"
+        memory: 20Gi
+
+    autoLogin: false
+    superuser: admin
+    # superuserPassword and secretKey: passed via --set at install time,
+    # see the command above -- never commit real values for these.
+
+    # Postgres instead of the chart's default SQLite-on-PVC -- see
+    # langflow-postgres.yaml for why (single-file SQLite had no
+    # reconstruction path and blocked running more than one replica).
+    sqlite:
+      enabled: false
+
+    externalDatabase:
+      enabled: true
+      driver: postgresql
+      host: langflow-postgres.otel25-sdg.svc.cluster.local
+      port: 5432
+      database: langflow
+      user:
+        valueFrom:
+          secretKeyRef:
+            name: langflow-db-secret
+            key: username
+      password:
+        valueFrom:
+          secretKeyRef:
+            name: langflow-db-secret
+            key: password
+
+    env:
+      - name: LANGFLOW_PORT
+        value: "7860"
+      - name: LANGFLOW_ALEMBIC_LOG_FILE
+        value: "/app/db/alembic.log"
+      - name: LANGFLOW_UPDATE_STARTER_PROJECTS
+        value: "false"
+      # Points the agent flow's model component at the RHDP-hosted vLLM
+      # endpoint instead of a public API.
+      - name: VLLM_API_BASE
+        value: "https://ai-inference.apps.cluster-qbq4v.qbq4v.sandbox2667.opentlc.com/models/redhataigemma-4-31b-it/v1"
+      - name: VLLM_API_KEY
+        valueFrom:
+          secretKeyRef:
+            name: maas-rhdp-api-key
+            key: api-key

@@ -110,6 +110,22 @@ sdg/scripts/start-agent.sh --dry-run
 sdg/scripts/start-agent.sh
 ```
 
+#### Production deployment on OpenShift (Helm)
+
+`start-agent.sh` above runs Langflow directly via the CLI, which is enough
+for local testing. The actual production instance (sandbox2667, namespace
+`otel25-sdg`) runs as a Helm release instead, tuned for the real throughput
+this pipeline needs (16 workers, 6-12 CPU / 12-20Gi memory, external Postgres
+instead of the chart's default SQLite-on-PVC). That tuning is captured in
+`sdg/openshift/langflow-values.yaml` so a `helm upgrade` can't silently
+revert it back to chart defaults -- see the comments at the top of that file
+for the full `helm install`/`helm upgrade` commands, including the external
+Postgres (`langflow-postgres.yaml` + `create-langflow-db-secret.sh`) and
+`maas-rhdp-api-key` secret this release depends on. The chart has no
+`secretKeyRef` support for the Langflow superuser password or encryption
+key, so those two are generated fresh and passed via `--set` at install
+time -- never committed to a file.
+
 ### 3. Verify Langflow MCP Integration (including session handshake)
 
 ```bash
