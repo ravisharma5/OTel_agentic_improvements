@@ -1634,10 +1634,10 @@ def pool_stats() -> str:
     Returns counts of active, idle, and total persistent SSH connections
     per device. Useful for monitoring connection reuse.
     """
-    from mcp_telecom.pool import ConnectionPool
-
-    pool = ConnectionPool()
-    stats = pool.get_stats()
+    # 2026-10-21: was building a fresh, throwaway ConnectionPool() here,
+    # which always reported zero connections -- the pool device_manager.connect()
+    # actually uses is a different instance entirely (device_manager.pool).
+    stats = device_manager.pool.get_stats()
     lines = [
         "Connection Pool Stats:",
         f"  Total connections: {stats['total_connections']}",
@@ -1825,14 +1825,59 @@ def resource_compliance_rules() -> str:
 @mcp.resource("telecom://pool-stats")
 def resource_pool_stats() -> str:
     """Connection pool statistics."""
-    from mcp_telecom.pool import ConnectionPool
-    pool = ConnectionPool()
-    return json.dumps(pool.get_stats(), indent=2)
+    return json.dumps(device_manager.pool.get_stats(), indent=2)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  Server Entry Point
 # ═══════════════════════════════════════════════════════════════════════════
+
+# 2026-10-22: confirmed live that sustained high-throughput traffic (only
+# possible since the connection-pooling fix removed the old 50-75s-per-call
+# bottleneck) grows this process's memory to OOMKill within ~2 hours --
+# ruled out the pool's own connection handling (reproduced 200+ repeated
+# commands and 100+ open/close cycles against a real device with zero
+# growth), FastMCP's session bookkeeping (verified properly cleaned up in
+# its source), and audit logging (file stays under 1MB). Most likely cause
+# is memory allocator fragmentation under sustained large-text-output
+# processing at a volume that was never reachable before pooling -- a known
+# category of issue for long-running Python processes, not a specific leak
+# to patch out.
+#
+# Rather than fight the fragmentation directly, /healthz below self-reports
+# unhealthy once memory crosses a safe margin below the real limit, so
+# Kubernetes' liveness probe (switched in mcp-telecom-deployment.yaml from a
+# bare TCP check to this endpoint) restarts the pod on its own schedule --
+# a clean, graceful recycle with a fresh process and fresh memory, instead
+# of an abrupt mid-request OOMKill. This keeps the pooling fix (and its
+# latency win) completely intact; it only bounds how long a single process
+# instance runs. Module-level (not nested in create_app()) so it's directly
+# unit-testable -- see test_server_healthz.py.
+MEMORY_HEALTHY_FRACTION = 0.75
+
+
+def memory_pressure_ok(
+    current_path: str = "/sys/fs/cgroup/memory.current",
+    max_path: str = "/sys/fs/cgroup/memory.max",
+) -> bool:
+    """True if this process's cgroup memory is comfortably under its limit.
+
+    Fails open (returns True) on any read error -- an environment without
+    these cgroup v2 paths (or any other read error) must not make the pod
+    permanently unhealthy over something unrelated to real memory pressure.
+    """
+    try:
+        with open(current_path) as f:
+            current = int(f.read().strip())
+        with open(max_path) as f:
+            raw_max = f.read().strip()
+        if raw_max == "max":
+            return True  # no limit set -- nothing to protect against
+        limit = int(raw_max)
+        return current < limit * MEMORY_HEALTHY_FRACTION
+    except (OSError, ValueError):
+        return True
+
 
 def create_app():
     """Create the ASGI app with custom routes (e.g. /healthz)."""
@@ -1840,6 +1885,8 @@ def create_app():
     from starlette.routing import Route
 
     async def healthz(request):
+        if not memory_pressure_ok():
+            return JSONResponse({"status": "memory pressure, recycling"}, status_code=503)
         return JSONResponse({"status": "ok"})
 
     app = mcp.http_app()

@@ -34,21 +34,32 @@ spec:
         resources:
           requests:
             cpu: 500m
-            memory: 512Mi
+            memory: 1Gi
           limits:
             cpu: "1"
-            memory: 1Gi
+            memory: 3Gi
         readinessProbe:
           httpGet:
             path: /healthz
             port: 8000
           initialDelaySeconds: 5
           periodSeconds: 10
+        # 2026-10-22: switched from a bare tcpSocket check to /healthz,
+        # which now self-reports unhealthy once memory crosses 75% of the
+        # container's real cgroup limit (see create_app()'s healthz handler
+        # for the full incident writeup). A bare TCP check never fails from
+        # internal memory pressure -- only an actual OOMKill would restart
+        # the pod, which is abrupt and mid-request. This lets Kubernetes
+        # restart it gracefully first. failureThreshold x periodSeconds
+        # (90s) gives readiness (10s period, same threshold) time to pull
+        # the pod out of rotation before liveness actually restarts it.
         livenessProbe:
-          tcpSocket:
+          httpGet:
+            path: /healthz
             port: 8000
           initialDelaySeconds: 10
           periodSeconds: 30
+          failureThreshold: 3
 ---
 apiVersion: v1
 kind: Service

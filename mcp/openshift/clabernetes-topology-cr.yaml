@@ -108,6 +108,39 @@ spec:
       #      in this image's binary: `yaml:"memory,omitempty"`/`yaml:"cpu,omitempty"`)
       #      pass straight through to the inner `docker create`'s HostConfig, which is
       #      the only thing that actually constrains this container's real cgroup.
+      #   4. 2026-10-15: bumped 3gb -> 6gb ahead of a longer, higher-volume pipeline
+      #      run (concurrency 8->16). More concurrent tool calls means more overlapping
+      #      SSH/CLI sessions against r1/r2/r3, and the 2026-10-14 finding above already
+      #      showed a fresh instance idling at ~99% of a 2Gi cap within 10 minutes with
+      #      zero traffic -- 3gb had only modest headroom over that idle baseline. This
+      #      doesn't fix the underlying leak (still not root-caused inside SR Linux/
+      #      Clabernetes itself), it just gives more room to run before the per-node
+      #      OOM-restart kicks in. The outer spec.deployment.resources pod limit (4Gi)
+      #      was left as-is -- it bounds a genuinely different cgroup (the launcher's
+      #      dockerd/containerd overhead), not this.
+      #   5. 2026-10-21: bumped 6gb -> 15gb (2.5x). External traffic against this
+      #      gateway (a separate team's SDG pipeline run, not this project's own)
+      #      roughly tripled on each of three consecutive daily checks, and r1's real
+      #      cgroup started showing memory.events "max" counts in the hundreds -- the
+      #      kernel forcibly reclaiming to stay under the 6gb cap, not yet an actual
+      #      OOM-kill (oom_kill stayed 0), but a genuine escalation from the
+      #      flat/stable headroom seen immediately after the previous bump. Checked
+      #      the real host capacity before picking a number, not just raising it
+      #      blind: all three routers share one node (ip-10-0-2-46, 61GiB total RAM,
+      #      44GiB free at the time), so a full 3x (18gb/router, 54GB combined
+      #      ceiling) would leave almost no margin against the node's own total
+      #      capacity if all three ever grew toward their cap at once -- a node-level
+      #      OOM from that would be a worse failure mode than the per-container one
+      #      this limit exists to contain. Landed on 2.5x (15gb/router, 45GB combined)
+      #      instead: real room to grow past the current ~3.3-3.9GB/router usage,
+      #      while still leaving ~10GB of genuine headroom on the node in the full
+      #      worst case. Applied with the external pipeline confirmed stopped first,
+      #      since recreating the launcher pods to pick up the new limit briefly drops
+      #      all three routers -- same tradeoff as the 2026-10-15 bump, just explicitly
+      #      coordinated with the other team this time since their traffic is what
+      #      triggered this one. cpu: 2 left unchanged -- every pressure signal seen so
+      #      far has been memory, CPU was
+      #      never observed throttling or contending on this node.
       #
       # Deploy:
       #   sudo containerlab deploy -t containerlab-topology.yaml
@@ -133,17 +166,17 @@ spec:
           r1:
             kind: nokia_srlinux
             image: ghcr.io/nokia/srlinux:latest
-            memory: 3gb
+            memory: 15gb
             cpu: 2
           r2:
             kind: nokia_srlinux
             image: ghcr.io/nokia/srlinux:latest
-            memory: 3gb
+            memory: 15gb
             cpu: 2
           r3:
             kind: nokia_srlinux
             image: ghcr.io/nokia/srlinux:latest
-            memory: 3gb
+            memory: 15gb
             cpu: 2
         links:
         - endpoints:

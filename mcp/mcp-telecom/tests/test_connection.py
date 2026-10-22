@@ -2,6 +2,7 @@
 
 import os
 import tempfile
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -107,3 +108,46 @@ router2:
             )
         names = [d.name for d in dm.list_devices()]
         assert names == sorted(names)
+
+
+class TestConnectReuse:
+    """Regression tests for #(connection-pooling fix): connect() used to open
+    a fresh ConnectHandler and disconnect it on every single call -- the
+    ConnectionPool it now checks out from (and returns to) exists precisely
+    so a second call to the same device doesn't pay that cost again."""
+
+    def _manager_with_device(self) -> DeviceManager:
+        dm = DeviceManager()
+        dm.add_device(
+            "r1",
+            DeviceConfig(
+                device_type=VendorType.NOKIA_SROS,
+                host="192.168.1.1",
+                username="testuser",
+                password="testpass",  # noqa: S106
+            ),
+        )
+        return dm
+
+    def test_second_call_reuses_pooled_connection(self):
+        dm = self._manager_with_device()
+        fake_conn = MagicMock()
+        fake_conn.is_alive.return_value = True
+        with patch("mcp_telecom.pool.ConnectHandler", return_value=fake_conn) as mock_handler:
+            with dm.connect("r1") as conn1:
+                conn1.send_command("show version")
+            with dm.connect("r1") as conn2:
+                conn2.send_command("show version")
+        # One real ConnectHandler() call for both uses -- the second checked
+        # the same connection back out of the pool instead of opening a new one.
+        assert mock_handler.call_count == 1
+        assert conn1 is conn2
+
+    def test_failed_connection_is_not_pooled(self):
+        dm = self._manager_with_device()
+        with patch("mcp_telecom.pool.ConnectHandler", side_effect=RuntimeError("boom")):
+            with pytest.raises(ConnectionError):
+                with dm.connect("r1"):
+                    pass
+        stats = dm.pool.get_stats()
+        assert stats["total_connections"] == 0
