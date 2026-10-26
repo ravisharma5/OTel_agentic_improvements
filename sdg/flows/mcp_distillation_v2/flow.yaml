@@ -1,0 +1,236 @@
+# Repo-local v2 of sdg_hub 0.9.4's agentic/mcp_distillation flow (installed
+# package left untouched). Differences from the stock flow, all for the
+# multi-model fleet (see run/model_eval/teacher_judge/REPORT.md):
+#   - clean_target_tools: strips arguments from <tool>name(args)</tool>.
+#   - build_quality_check_prompt also gets server_understanding, so the
+#     question judge can reject invented entities.
+#   - render_judge_transcript + build_response_quality_prompt: the response
+#     judge sees the tool calls, (truncated) tool results and final answer,
+#     not only the final answer.
+# Blocks ToolNameCleanerBlock / ToolTraceRendererBlock live in
+# sdg/lib/flow_blocks.py; import it before Flow.from_yaml().
+# Output columns used by run-evaluation.py / tool_coverage_report.py /
+# run-multiturn-followup.py are unchanged (question, extract_agent_text_text,
+# extract_agent_text_tool_trace, tool_list, scenario_name, intended_tools).
+metadata:
+  name: MCP Server Distillation v2
+  description: Generates high-quality tool-use training data through expert distillation. A frontier model actively explores the MCP server to understand tool behavior, then generates grounded questions and expert-quality trajectories. The resulting
+    data is used to fine-tune smaller models for server-specific tool mastery.
+  version: 2.0.0
+  author: SDG Hub Contributors
+  license: Apache-2.0
+  recommended_models:
+    default: openai/gpt-5.2
+    compatible:
+    - openai/gpt-5-mini
+    - hosted_vllm/openai/gpt-oss-120b
+    experimental: []
+  tags:
+  - agentic
+  - tool-use
+  - data-generation
+  - mcp
+  - distillation
+  - exploration
+  dataset_requirements:
+    required_columns:
+    - tool_list
+    - mcp_server_name
+    - mcp_server_description
+    description: 'Input dataset with MCP tool collections. Each row should contain: tool_list (Python list of tool objects with name, description, inputSchema), mcp_server_name (server name string), mcp_server_description (server description
+      string).'
+  id: telco-mcp-distillation-v2
+blocks:
+- block_type: PromptBuilderBlock
+  block_config:
+    block_name: build_exploration_prompt
+    input_cols:
+      tool_list: tool_list
+      mcp_server_name: mcp_server_name
+      mcp_server_description: mcp_server_description
+    output_cols: exploration_messages
+    prompt_config_path: prompts/exploration.yaml
+- block_type: AgentBlock
+  block_config:
+    block_name: explore_server
+    agent_framework: langflow
+    agent_url: http://localhost:7860/api/v1/run/default
+    timeout: 300.0
+    input_cols:
+    - exploration_messages
+    output_cols:
+    - exploration_response
+- block_type: AgentResponseExtractorBlock
+  block_config:
+    block_name: extract_exploration
+    input_cols: exploration_response
+    extract_text: true
+    extract_session_id: false
+- block_type: TagParserBlock
+  block_config:
+    block_name: parse_exploration
+    input_cols: extract_exploration_text
+    output_cols:
+    - server_understanding
+    start_tags:
+    - <server_understanding>
+    end_tags:
+    - </server_understanding>
+- block_type: RowMultiplierBlock
+  block_config:
+    block_name: multiply_tool_rows
+    num_samples: 10
+    shuffle: true
+- block_type: SamplerBlock
+  block_config:
+    block_name: sample_tools
+    input_cols:
+    - tool_list
+    output_cols:
+    - sampled_tools
+    num_samples: 2
+- block_type: PromptBuilderBlock
+  block_config:
+    block_name: build_question_gen_prompt
+    input_cols:
+      sampled_tools: tool_list
+      mcp_server_name: mcp_server_name
+      mcp_server_description: mcp_server_description
+      server_understanding: server_understanding
+    output_cols: question_gen_messages
+    prompt_config_path: prompts/question_generation.yaml
+- block_type: LLMChatBlock
+  block_config:
+    block_name: generate_questions
+    input_cols: question_gen_messages
+    output_cols: question_gen_response
+    async_mode: true
+- block_type: LLMResponseExtractorBlock
+  block_config:
+    block_name: extract_question_response
+    input_cols: question_gen_response
+    field_prefix: question_gen_
+    extract_content: true
+- block_type: TagParserBlock
+  block_config:
+    block_name: parse_question_fields
+    input_cols: question_gen_content
+    output_cols:
+    - target_tools_raw
+    - question
+    start_tags:
+    - <target_tools>
+    - <question>
+    end_tags:
+    - </target_tools>
+    - </question>
+- block_type: ToolNameCleanerBlock
+  block_config:
+    block_name: clean_target_tools
+    input_cols: target_tools_raw
+    output_cols: target_tools
+- block_type: PromptBuilderBlock
+  block_config:
+    block_name: build_quality_check_prompt
+    input_cols:
+      tool_list: all_server_and_tool_information
+      question: question_content
+      target_tools: intended_tool
+      server_understanding: server_understanding
+    output_cols: quality_check_messages
+    prompt_config_path: prompts/question_quality_check.yaml
+- block_type: LLMChatBlock
+  block_config:
+    block_name: score_question_quality
+    input_cols: quality_check_messages
+    output_cols: quality_check_response
+    async_mode: true
+- block_type: LLMResponseExtractorBlock
+  block_config:
+    block_name: extract_quality_response
+    input_cols: quality_check_response
+    field_prefix: quality_check_
+    extract_content: true
+- block_type: TagParserBlock
+  block_config:
+    block_name: parse_quality_score
+    input_cols: quality_check_content
+    output_cols:
+    - question_quality_rating
+    start_tags:
+    - <question_quality_rating>
+    end_tags:
+    - </question_quality_rating>
+- block_type: ColumnValueFilterBlock
+  block_config:
+    block_name: filter_low_quality_questions
+    input_cols:
+    - question_quality_rating
+    filter_value:
+    - good
+    - excellent
+    operation: eq
+- block_type: AgentBlock
+  block_config:
+    block_name: run_expert_trajectory
+    agent_framework: langflow
+    agent_url: http://localhost:7860/api/v1/run/default
+    input_cols:
+    - question
+    output_cols:
+    - agent_response
+- block_type: AgentResponseExtractorBlock
+  block_config:
+    block_name: extract_agent_text
+    input_cols: agent_response
+    extract_text: true
+    extract_session_id: false
+    extract_tool_trace: true
+- block_type: ToolTraceRendererBlock
+  block_config:
+    block_name: render_judge_transcript
+    input_cols: extract_agent_text_text
+    trace_col: extract_agent_text_tool_trace
+    output_cols: response_judge_transcript
+    max_result_chars: 2000
+    max_total_chars: 40000
+- block_type: PromptBuilderBlock
+  block_config:
+    block_name: build_response_quality_prompt
+    input_cols:
+      question: question_content
+      target_tools: intended_tool
+      response_judge_transcript: conversation_history
+    output_cols: response_quality_messages
+    prompt_config_path: prompts/response_quality_check.yaml
+- block_type: LLMChatBlock
+  block_config:
+    block_name: score_response_quality
+    input_cols: response_quality_messages
+    output_cols: response_quality_response
+    async_mode: true
+- block_type: LLMResponseExtractorBlock
+  block_config:
+    block_name: extract_response_quality
+    input_cols: response_quality_response
+    field_prefix: response_quality_
+    extract_content: true
+- block_type: TagParserBlock
+  block_config:
+    block_name: parse_response_scores
+    input_cols: response_quality_content
+    output_cols:
+    - completeness_rating
+    start_tags:
+    - <completeness_rating>
+    end_tags:
+    - </completeness_rating>
+- block_type: ColumnValueFilterBlock
+  block_config:
+    block_name: filter_incomplete_responses
+    input_cols:
+    - completeness_rating
+    filter_value:
+    - mostly complete
+    - fully complete
+    operation: eq

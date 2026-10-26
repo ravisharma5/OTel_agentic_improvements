@@ -73,6 +73,24 @@ try:
     # calls for that seed, repeatedly, because sdg_hub's existing retry
     # infrastructure never covered HTTP status errors at all.
     patch_http_client_for_5xx_retry()
+    # 2026-10-19: one row whose agent call still fails after those retries
+    # (e.g. context_length_exceeded) is dropped instead of aborting the whole
+    # tier -- see agent_row_isolation.py's module docstring (Farbod's team's
+    # fleet run verify1 lost multi_turn_P entirely this way; patch shared and
+    # independently verified against sdg_hub==0.9.4 on 2026-10-26).
+    from sdg.lib.agent_row_isolation import patch_agent_block_row_isolation
+    patch_agent_block_row_isolation()
+    # 2026-10-22: a checkpoint chunk filtered to zero rows is skipped instead
+    # of aborting the whole attempt and stranding every later chunk's seeds --
+    # see empty_chunk_isolation.py's module docstring (fleet run full1_p2/
+    # single_P lost ~85 of 121 seeds this way).
+    from sdg.lib.empty_chunk_isolation import patch_empty_chunk_isolation
+    patch_empty_chunk_isolation()
+    # 2026-10-26: registers ToolTraceRendererBlock/ToolNameCleanerBlock with
+    # sdg_hub's BlockRegistry, used by sdg/flows/mcp_distillation_v2/flow.yaml
+    # to give the response judge the tool trace (stock flow shows it only the
+    # final answer -- see flow_blocks.py's module docstring).
+    import sdg.lib.flow_blocks  # noqa: F401
 except ImportError:
     FlowRegistry = None  # type: ignore[assignment,misc]
     Flow = None  # type: ignore[assignment,misc]
@@ -347,7 +365,21 @@ def _load_seed_dataframe(seeds_path: Path, tiers: list[str] | None = None):
 # matches the request concurrency. Also raised request-level timeout to
 # 300s (flow-training.yaml) since the earlier revert. Watch the first tier
 # for a repeat of the same failure mode before trusting this long-term.
-GENERATION_MAX_CONCURRENCY = 8
+#
+# 2026-10-15: raised 8 -> 16 ahead of a longer, higher-volume run
+# (multiply_tool_rows.num_samples bumped 20 -> ~60-80 the same day). Checked
+# first this time instead of guessing: `oc adm top` on langflow-service
+# during the 10-13 fix showed only ~21m CPU used out of an 8-core limit at
+# concurrency=8 -- nowhere near compute-bound, so the 8-worker ceiling
+# itself (not resource contention) was what capped real concurrency. Raised
+# LANGFLOW_NUM_WORKERS 8 -> 16 in lockstep again (same lesson as 10-13:
+# raising this without matching the worker count just queues the excess
+# past the connector's timeout) plus a proportional resource bump on the
+# StatefulSet. Also added 429 to retrying_http_client.py's retry predicate
+# before this -- the existing 5xx-only retry doesn't cover a hosted model
+# API rate-limit response, which is a real risk at higher request volume
+# that wasn't a concern against a self-hosted vLLM endpoint.
+GENERATION_MAX_CONCURRENCY = 16
 
 
 def _generate_once(
@@ -398,6 +430,23 @@ def _generate_once(
             raise
 
 
+def _resolve_flow_path(config: dict) -> str:
+    """config['flow_path'] (repo-relative or absolute) or sdg_hub's stock flow.
+
+    Lets a flow-training.yaml opt into sdg/flows/mcp_distillation_v2/flow.yaml
+    (or any other repo-local flow) without changing the default for configs
+    that don't set it.
+    """
+    flow_path = (config.get("flow_path") or "").strip()
+    if flow_path:
+        p = Path(flow_path)
+        if not p.is_absolute() and not p.exists():
+            p = Path(__file__).resolve().parents[2] / flow_path
+        return str(p)
+    FlowRegistry.discover_flows()
+    return FlowRegistry.get_flow_path("MCP Server Distillation")
+
+
 def _run_generation(
     config: dict,
     seeds: list[dict],
@@ -437,9 +486,11 @@ def _run_generation(
             "(see https://github.com/redhat-ai-tools/sdg-hub)"
         )
 
-    # Discover and load the flow
-    FlowRegistry.discover_flows()
-    flow_path = FlowRegistry.get_flow_path("MCP Server Distillation")
+    # Discover and load the flow: config['flow_path'] (e.g.
+    # sdg/flows/mcp_distillation_v2/flow.yaml, which gives the response judge
+    # the tool trace instead of only the final answer -- see flow_blocks.py)
+    # or sdg_hub's installed "MCP Server Distillation" by default.
+    flow_path = _resolve_flow_path(config)
     flow = Flow.from_yaml(flow_path)
 
     # Real Flow API (verified against installed sdg_hub==0.9.4, not assumed
