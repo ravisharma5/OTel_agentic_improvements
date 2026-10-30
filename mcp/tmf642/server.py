@@ -10,6 +10,7 @@
 #   acknowledge_alarm, clear_alarm, add_comment
 # DO NOT edit the ConfigMap watcher section (ConfigMap contract, BACK-03)
 
+import copy
 import os
 import json
 import threading
@@ -91,14 +92,109 @@ route_maps = [
 ]
 
 
-def customize_components(route, component):
-    """Customize tool descriptions for LLM consumption.
+# --- "@"-prefixed field aliasing ---
+# TMF schemas name fields "@type", "@baseType", "@schemaLocation" and
+# "@referredType". LangChain-based MCP clients (Langflow) build pydantic models
+# from tool schemas and silently drop "@"-prefixed fields: the required @type
+# never reaches the backend, and recorded arguments differ from what was sent.
+# Tools expose them as "at_type" etc. and arguments are translated back before
+# the request is built, so the backend still receives the TMF field names.
+_AT_ALIAS = "at_"
 
-    Phase 3: improve these descriptions for telecom domain clarity.
+
+def _alias_at_schema(node, names):
+    """Rename "@x" properties and required entries to "at_x" in place."""
+    if isinstance(node, dict):
+        props = node.get("properties")
+        if isinstance(props, dict):
+            names.update(k[1:] for k in props if k.startswith("@"))
+            node["properties"] = {
+                (_AT_ALIAS + k[1:] if k.startswith("@") else k): v for k, v in props.items()
+            }
+        if isinstance(node.get("required"), list):
+            node["required"] = [
+                _AT_ALIAS + r[1:] if isinstance(r, str) and r.startswith("@") else r
+                for r in node["required"]
+            ]
+        disc = node.get("discriminator")
+        if isinstance(disc, dict) and str(disc.get("propertyName", "")).startswith("@"):
+            disc["propertyName"] = _AT_ALIAS + disc["propertyName"][1:]
+        for value in node.values():
+            _alias_at_schema(value, names)
+    elif isinstance(node, list):
+        for value in node:
+            _alias_at_schema(value, names)
+
+
+def _restore_at_args(value, names):
+    """Translate "at_x" keys back to "@x" for every aliased name, recursively."""
+    if isinstance(value, dict):
+        return {
+            ("@" + k[len(_AT_ALIAS):] if k.startswith(_AT_ALIAS) and k[len(_AT_ALIAS):] in names else k):
+                _restore_at_args(v, names)
+            for k, v in value.items()
+        }
+    if isinstance(value, list):
+        return [_restore_at_args(v, names) for v in value]
+    return value
+
+
+# FastMCP renames a path parameter to "<name>__path" when the request body
+# also has a "<name>" field (TMF PATCH bodies repeat the resource "id"). A
+# model fills in "id", which lands in the body, and the URL keeps a literal
+# "{id}". The body copy is server-assigned and not updatable, so drop it and
+# expose the path parameter under its real name.
+_PATH_SUFFIX = "__path"
+
+
+def _unclash_path_params(params):
+    """Expose "<name>__path" as "<name>", dropping the body's duplicate field.
+
+    Returns {public_name: fastmcp_name} for translating arguments back.
     """
+    props = params.get("properties")
+    if not isinstance(props, dict):
+        return {}
+    renames = {k[: -len(_PATH_SUFFIX)]: k for k in props if k.endswith(_PATH_SUFFIX)}
+    if renames:
+        params["properties"] = {
+            (k[: -len(_PATH_SUFFIX)] if k in renames.values() else k): v
+            for k, v in props.items()
+            if k not in renames
+        }
+        if isinstance(params.get("required"), list):
+            required = []
+            for r in params["required"]:
+                r = r[: -len(_PATH_SUFFIX)] if r in renames.values() else r
+                if r not in required:
+                    required.append(r)
+            params["required"] = required
+    return renames
+
+
+def customize_components(route, component):
+    """Customize tool components for LLM consumption."""
     if isinstance(component, OpenAPITool):
-        # Edit descriptions, add tags, adjust parameters here
-        pass
+        names = set()
+        params = copy.deepcopy(component.parameters)
+        _alias_at_schema(params, names)
+        path_renames = _unclash_path_params(params)
+        if names or path_renames:
+            component.parameters = params
+            original_run = component.run
+            frozen = frozenset(names)
+
+            async def run(arguments):
+                arguments = _restore_at_args(arguments, frozen)
+                for public, internal in path_renames.items():
+                    if public in arguments:
+                        arguments[internal] = arguments.pop(public)
+                return await original_run(arguments)
+
+            # Tool is a pydantic model; set the per-instance override directly.
+            object.__setattr__(component, "run", run)
+
+
 
 
 spec_dict = yaml.safe_load(SPEC_PATH.read_text())
