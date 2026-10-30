@@ -88,6 +88,11 @@ langflow:
         value: "/app/db/alembic.log"
       - name: LANGFLOW_UPDATE_STARTER_PROJECTS
         value: "false"
+      # Langflow's run tracing writes a trace row for every agent step. Under
+      # SDG volume it grew one instance's database to ~23 GB and caused
+      # "database is locked" stalls in an external 10-process fleet run.
+      - name: LANGFLOW_DEACTIVATE_TRACING
+        value: "true"
       # Points the agent flow's model component at the RHDP-hosted vLLM
       # endpoint instead of a public API.
       - name: VLLM_API_BASE

@@ -7,7 +7,11 @@ tool_calls, and tool_call_id threading.
 
 Supports both single-turn and multi-turn trajectory formats (D-20).
 Prefers original tool_call_ids from the teacher model's trace when
-available, falling back to synthetic UUIDs only if absent.
+available, falling back to deterministic content-derived IDs if absent.
+
+Each agent step becomes its own assistant message followed by that step's
+tool results, so a call never appears to use a result the agent had not seen
+yet (see _group_into_steps).
 
 OSFT JSONL schema is sourced from Training Hub's documented
 messages/tool_calls/tool_call_id structure (D-18).
@@ -21,10 +25,11 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import logging
+import re
 import sys
-import uuid
 from pathlib import Path
 
 from sdg.lib.osft_validation import validate_tool_trace_outputs
@@ -56,11 +61,24 @@ def _unwrapped_tool_trace(tool_trace: list[dict]) -> list[dict]:
     ]
 
 
-def _make_call_id(tool_entry: dict) -> str:
-    """Return original tool_call_id if present, else generate a synthetic one."""
+def _make_call_id(
+    tool_entry: dict, turn_index: int = 0, call_index: int = 0, question: str = ""
+) -> str:
+    """Return the original tool_call_id if present, else a deterministic one.
+
+    The fallback is derived from the call's position and content, so
+    re-serializing the same trace produces identical output (a random uuid4
+    made every rebuild differ and dataset diffs useless). call_index keeps
+    IDs unique within a conversation even for repeated identical calls.
+    """
     if "id" in tool_entry:
         return tool_entry["id"]
-    return f"call_{uuid.uuid4().hex[:12]}"
+    key = json.dumps(
+        [question, turn_index, call_index, tool_entry.get("name"), tool_entry.get("input", {})],
+        sort_keys=True,
+        default=str,
+    )
+    return "call_" + hashlib.sha256(key.encode()).hexdigest()[:12]
 
 
 def _extract_tool_output_content(output: object) -> str:
@@ -88,64 +106,131 @@ def _extract_tool_output_content(output: object) -> str:
     return json.dumps(output)
 
 
-def _serialize_turn(turn: dict) -> tuple[list[dict], list[dict]]:
+# Phrases emitted when a tool call times out: mcp-telecom ("... timed out
+# after 30s"), the MCP Python SDK ("Timed out while waiting for response to
+# ClientRequest"), and httpx (ReadTimeout / ConnectTimeout).
+_TIMEOUT_PATTERN = re.compile(
+    r"timed out|\b(?:read|connect|write|pool)timeout\b|\btimeouterror\b|deadline exceeded",
+    re.IGNORECASE,
+)
+_ERROR_PATTERN = re.compile(r"\b(?:error|exception|traceback)\b|not installed", re.IGNORECASE)
+# Real payloads (router logs, show output) can mention "timed out" or "error"
+# in passing; failure messages are short. Longer results are always "ok".
+_STATUS_MAX_CHARS = 1000
+
+
+def tool_result_status(output: object) -> str:
+    """Classify a tool result as "timeout", "error", or "ok".
+
+    Tool frameworks report MCP failures as ordinary results (LangChain's
+    ToolMessage.status is "success" even for error text), so this classifies
+    the payload itself. Only "timeout" is acted on (see row_timeout_count):
+    an error is a real tool response the agent should learn to handle, while
+    a timeout carries no information and the agent's answer tends to guess.
+    """
+    content = _extract_tool_output_content(output).strip()
+    if not content or len(content) > _STATUS_MAX_CHARS:
+        return "ok"
+    if _TIMEOUT_PATTERN.search(content):
+        return "timeout"
+    if _ERROR_PATTERN.search(content.split("\n", 1)[0]):
+        return "error"
+    return "ok"
+
+
+def row_timeout_count(trace: dict) -> int:
+    """Number of timed-out tool results in a flat trace or a multi-turn trace."""
+    turns = trace.get("turns") or [trace]
+    return sum(
+        tool_result_status(entry.get("output", {})) == "timeout"
+        for turn in turns
+        for entry in (turn.get("tool_trace") or [])
+        if isinstance(entry, dict)
+    )
+
+
+def _group_into_steps(tool_trace: list[dict]) -> list[list[dict]]:
+    """Split a turn's tool calls into agent steps, preserving order.
+
+    Consecutive entries with the same ``step`` value were issued together in
+    one agent step (parallel calls) and share an assistant message. Entries
+    without ``step`` each form their own step: the agent trace keeps call ->
+    result order but not which calls were issued together, and batching them
+    all would show later calls using results the agent had not seen yet.
+    """
+    steps: list[list[dict]] = []
+    for entry in tool_trace:
+        step = entry.get("step")
+        if steps and step is not None and steps[-1][-1].get("step") == step:
+            steps[-1].append(entry)
+        else:
+            steps.append([entry])
+    return steps
+
+
+def _serialize_turn(turn: dict, turn_index: int = 0) -> tuple[list[dict], list[dict]]:
     """Serialize a single turn into (assistant+tool messages, []).
 
     Returns a list of messages for one user turn:
-      user, assistant(tool_calls), tool..., assistant(answer)
+      user, [assistant(tool_calls), tool...] per step, assistant(answer)
+
+    A turn with no tool calls is valid in a genuine multi-turn conversation
+    (e.g. the agent asking a clarifying question, or answering directly from
+    context already established in an earlier turn) -- confirmed live,
+    2026-10-15: a real multiturn_analytics_interface_followup conversation's
+    third turn ("Is there an alarm associated with this interface?") had the
+    agent correctly ask which interface, with zero new tool calls, rather
+    than hallucinating one. Only serialize_single_turn() enforces "must have
+    at least one tool call" (via its own separate check before calling this
+    function) -- that's the right bar for a standalone single-turn example,
+    but not for one turn inside a longer conversation that demonstrates
+    multi-turn tool use overall.
     """
     question = turn.get("question", "")
     tool_trace = turn.get("tool_trace") or []
     answer = turn.get("answer", "")
-
-    if not tool_trace:
-        raise ValueError("Trace has no tool calls")
 
     messages: list[dict] = []
 
     # User message
     messages.append({"role": "user", "content": question})
 
-    # Determine call IDs and build tool_calls array
-    tool_calls = []
-    call_ids = []
-    for entry in tool_trace:
-        call_id = _make_call_id(entry)
-        call_ids.append(call_id)
-        tool_calls.append(
-            {
-                "id": call_id,
-                "type": "function",
-                "function": {
-                    "name": entry["name"],
-                    "arguments": json.dumps(entry.get("input", {})),
-                },
-            }
-        )
+    if not tool_trace:
+        messages.append({"role": "assistant", "content": answer})
+        return messages, []
 
-    # Assistant message with tool_calls
-    messages.append(
-        {
-            "role": "assistant",
-            "content": None,
-            "tool_calls": tool_calls,
-        }
-    )
+    all_tool_calls: list[dict] = []
+    call_index = 0
+    for step in _group_into_steps(tool_trace):
+        step_calls = []
+        for entry in step:
+            step_calls.append(
+                {
+                    "id": _make_call_id(entry, turn_index, call_index, question),
+                    "type": "function",
+                    "function": {
+                        "name": entry["name"],
+                        "arguments": json.dumps(entry.get("input", {})),
+                    },
+                }
+            )
+            call_index += 1
 
-    # Tool response messages
-    for i, entry in enumerate(tool_trace):
-        messages.append(
-            {
-                "role": "tool",
-                "tool_call_id": call_ids[i],
-                "content": _extract_tool_output_content(entry.get("output", {})),
-            }
-        )
+        messages.append({"role": "assistant", "content": None, "tool_calls": step_calls})
+        for entry, call in zip(step, step_calls):
+            messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": call["id"],
+                    "content": _extract_tool_output_content(entry.get("output", {})),
+                }
+            )
+        all_tool_calls.extend(step_calls)
 
     # Final assistant message with answer
     messages.append({"role": "assistant", "content": answer})
 
-    return messages, tool_calls
+    return messages, all_tool_calls
 
 
 def serialize_single_turn(trace: dict) -> dict:
@@ -194,8 +279,8 @@ def serialize_multi_turn(trace: dict) -> dict:
     system_msg = _build_system_message(tools)
 
     all_messages = [system_msg]
-    for turn in turns:
-        turn_messages, _ = _serialize_turn(turn)
+    for turn_index, turn in enumerate(turns):
+        turn_messages, _ = _serialize_turn(turn, turn_index)
         all_messages.extend(turn_messages)
 
     return {"messages": all_messages}
@@ -222,6 +307,11 @@ def build_parser() -> argparse.ArgumentParser:
         default="both",
         help="Output format: single-turn, multi-turn, or both (default: both).",
     )
+    parser.add_argument(
+        "--keep-timeouts",
+        action="store_true",
+        help="Serialize traces containing a timed-out tool result instead of skipping them.",
+    )
     return parser
 
 
@@ -240,6 +330,14 @@ def main(argv: list[str] | None = None) -> None:
             line = line.strip()
             if line:
                 traces.append(json.loads(line))
+
+    if not args.keep_timeouts:
+        timed_out = [t for t in traces if row_timeout_count(t)]
+        traces = [t for t in traces if not row_timeout_count(t)]
+        logger.info(
+            "Skipping %d trace(s) containing a timed-out tool result (--keep-timeouts to include)",
+            len(timed_out),
+        )
 
     if args.format in ("single-turn", "both"):
         out_path = output_dir / "single_turn.jsonl"

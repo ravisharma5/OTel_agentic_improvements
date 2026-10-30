@@ -42,7 +42,11 @@ import sys
 from pathlib import Path
 
 # OSFT serializer -- UNDERSCORE filename, proper package import
-from sdg.scripts.serialize_osft import serialize_single_turn, serialize_multi_turn
+from sdg.scripts.serialize_osft import (
+    row_timeout_count,
+    serialize_multi_turn,
+    serialize_single_turn,
+)
 
 # OSFT validation -- library module, per amended D-04
 from sdg.lib.osft_validation import validate_osft_line, validate_osft_file
@@ -50,7 +54,7 @@ from sdg.lib.osft_validation import validate_osft_line, validate_osft_file
 # Tool-trace column name -- same constant tool_coverage_report.py and the
 # rejection-sampling gate already rely on, confirmed empirically against
 # real output. Reused here (rather than re-guessing) for COLUMN_MAP below.
-from sdg.lib.trace_utils import DEFAULT_TRACE_COLUMN
+from sdg.lib.trace_utils import DEFAULT_TRACE_COLUMN, normalize_tool_trace
 
 logger = logging.getLogger(__name__)
 
@@ -158,6 +162,28 @@ def _map_columns(row: dict, row_index: int) -> dict:
                 "Row %d: tool_trace is not valid JSON, keeping as-is",
                 row_index,
             )
+
+    # Normalize the raw agent trace into the {name, input, output} canonical
+    # shape serialize_osft expects. Without this, the serializer reads
+    # entry["name"]/["input"]/["output"] off the raw role/tool_calls/content
+    # entries and emits null names + empty "{}" args + empty "{}" outputs.
+    # Ported from the shared repo's merged PR #1, which main had never received.
+    if isinstance(mapped.get("tool_trace"), list):
+        mapped["tool_trace"] = normalize_tool_trace(mapped["tool_trace"])
+
+    # Genuine multi-turn rows (multi_turn / closed_loop) carry their own
+    # per-turn traces in 'turns', which the flat-trace normalization above
+    # does not reach. Normalize each turn's trace the same way.
+    if isinstance(mapped.get("turns"), list):
+        for turn in mapped["turns"]:
+            turn_trace = turn.get("tool_trace")
+            if isinstance(turn_trace, str):
+                try:
+                    turn_trace = json.loads(turn_trace)
+                except (json.JSONDecodeError, ValueError):
+                    continue
+            if isinstance(turn_trace, list):
+                turn["tool_trace"] = normalize_tool_trace(turn_trace)
 
     # Ensure tools is a list (may be JSON string from sdg_hub)
     if isinstance(mapped.get("tools"), str):
@@ -288,9 +314,25 @@ def _to_multi_turn_trace(row: dict) -> dict:
     }
 
 
+TIMEOUT_ROWS_FILE = "timeout-rows.jsonl"
+
+
+def _split_timeout_rows(rows: list[dict]) -> tuple[list[dict], list[dict]]:
+    """Separate rows containing a timed-out tool result from the rest.
+
+    The final answer in such a row usually guesses at what the tool would
+    have returned, so it must not be trained on by accident.
+    """
+    kept, timed_out = [], []
+    for row in rows:
+        (timed_out if row_timeout_count(row) else kept).append(row)
+    return kept, timed_out
+
+
 def _validate_and_serialize(
     mapped_rows: list[dict],
     delivery_dir: Path,
+    keep_timeouts: bool = False,
 ) -> dict:
     """Run OSFT validation and produce dual-format delivery files.
 
@@ -303,11 +345,26 @@ def _validate_and_serialize(
     Args:
         mapped_rows: List of column-mapped dicts with serializer keys.
         delivery_dir: Directory for delivery JSONL files.
+        keep_timeouts: Deliver rows with timed-out tool results instead of
+            writing them to TIMEOUT_ROWS_FILE.
 
     Returns:
         Stats dict with counts for reporting.
     """
     delivery_dir.mkdir(parents=True, exist_ok=True)
+    total_mapped = len(mapped_rows)
+
+    timeout_rows: list[dict] = []
+    if not keep_timeouts:
+        mapped_rows, timeout_rows = _split_timeout_rows(mapped_rows)
+        with open(delivery_dir / TIMEOUT_ROWS_FILE, "w") as f:
+            for row in timeout_rows:
+                f.write(json.dumps(row, default=str) + "\n")
+        logger.info(
+            "Timeout gate: %d/%d rows contain a timed-out tool result -- written to %s, "
+            "not delivered (use --keep-timeouts to deliver them)",
+            len(timeout_rows), total_mapped, delivery_dir / TIMEOUT_ROWS_FILE,
+        )
 
     # OSFT validation (per amended D-04 -- unconditional, automatic)
     validated_rows = []
@@ -382,7 +439,8 @@ def _validate_and_serialize(
                 logger.error("  %s", err)
 
     return {
-        "total_mapped": len(mapped_rows),
+        "total_mapped": total_mapped,
+        "timeout_rows": len(timeout_rows),
         "osft_validated": len(validated_rows),
         "osft_dropped": len(osft_errors),
         "multi_turn_osft_flagged": len(multi_turn_osft_errors),
@@ -421,6 +479,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--verbose", "-v",
         action="store_true",
         help="Enable verbose logging",
+    )
+    parser.add_argument(
+        "--keep-timeouts",
+        action="store_true",
+        help=(
+            "Deliver rows containing a timed-out tool result instead of "
+            f"writing them to {TIMEOUT_ROWS_FILE} in the delivery directory"
+        ),
     )
     return parser
 
@@ -482,12 +548,13 @@ def main(argv: list[str] | None = None) -> int:
     # Step 3: OSFT validation and dual-format serialization
     # Per amended D-04 -- unconditional, automatic, part of normal execution
     logger.info("=== Step 3: OSFT Validation & Serialization (D-04, D-20) ===")
-    stats = _validate_and_serialize(mapped_rows, delivery_dir)
+    stats = _validate_and_serialize(mapped_rows, delivery_dir, keep_timeouts=args.keep_timeouts)
 
     # Summary
     logger.info("=== Summary ===")
     logger.info("Input rows:               %d", input_count)
     logger.info("Eval-flow-filtered rows:   %d", len(all_filtered_rows))
+    logger.info("Timeout rows (separated):  %d", stats["timeout_rows"])
     logger.info("OSFT-validated rows:       %d", stats["osft_validated"])
     logger.info("OSFT-dropped rows:         %d", stats["osft_dropped"])
     logger.info("Final delivery count:      %d", stats["osft_validated"])

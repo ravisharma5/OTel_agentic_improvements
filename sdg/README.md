@@ -126,6 +126,16 @@ Postgres (`langflow-postgres.yaml` + `create-langflow-db-secret.sh`) and
 key, so those two are generated fresh and passed via `--set` at install
 time -- never committed to a file.
 
+The values file also sets `LANGFLOW_DEACTIVATE_TRACING=true`: Langflow's run
+tracing writes a row per agent step, and at SDG volume it grew one
+instance's database to ~23 GB with "database is locked" stalls (reported by
+Farbod's team from a 10-process fleet run).
+
+If the teacher model sits behind a LiteLLM proxy with caching enabled,
+repeated generation prompts return identical cached samples. Add
+`extra_body: {cache: {no-cache: true}}` to `model_config` in
+`sdg/config/flow-training.yaml` for SDG runs against such an endpoint.
+
 ### 3. Verify Langflow MCP Integration (including session handshake)
 
 ```bash

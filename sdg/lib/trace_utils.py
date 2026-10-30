@@ -61,6 +61,17 @@ def normalize_tool_trace(raw_trace: list[dict] | str) -> list[dict]:
         elif entry.get("role") == "tool":
             tc_id = entry.get("tool_call_id")
             content = entry.get("content", "")
+            # The raw content is a JSON-encoded LangChain ToolMessage dict, not
+            # the bare backend response. Parse one level so serialize_osft's
+            # _extract_tool_output_content() can strip the transport
+            # bookkeeping instead of short-circuiting on a string. Plain-text
+            # content (e.g. a tool error) is kept as-is. Ported from the shared
+            # repo's 58912af (#1 follow-up), which main had never received.
+            if isinstance(content, str):
+                try:
+                    content = json.loads(content)
+                except (json.JSONDecodeError, TypeError):
+                    pass
             if tc_id and tc_id in pending:
                 pending[tc_id]["output"] = content
             elif cleaned and "output" not in cleaned[-1]:

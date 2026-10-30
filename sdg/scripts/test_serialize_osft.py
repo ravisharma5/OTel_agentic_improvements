@@ -10,7 +10,12 @@ import json
 
 import pytest
 
-from sdg.scripts.serialize_osft import serialize_multi_turn, serialize_single_turn
+from sdg.scripts.serialize_osft import (
+    row_timeout_count,
+    serialize_multi_turn,
+    serialize_single_turn,
+    tool_result_status,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -222,7 +227,7 @@ class TestMultiTurnSerialization:
 
 
 class TestParallelToolCalls:
-    """Traces with multiple tool calls in one turn."""
+    """Calls the agent issued together in one step (shared ``step`` value)."""
 
     @pytest.fixture()
     def parallel_trace(self) -> dict:
@@ -233,11 +238,13 @@ class TestParallelToolCalls:
                     "name": "tmf642_list_alarms",
                     "input": {"severity": "critical"},
                     "output": {"count": 1},
+                    "step": 0,
                 },
                 {
                     "name": "tmf628_get_performance",
                     "input": {"kpi": "pmRrcConnEstabSucc"},
                     "output": {"value": 99.1},
+                    "step": 0,
                 },
             ],
             "answer": "1 critical alarm, RRC success rate 99.1%.",
@@ -436,3 +443,115 @@ class TestMainRejectsSchemaInvalidTraces:
         written = json.loads(lines[0])
         user_msg = next(m for m in written["messages"] if m["role"] == "user")
         assert user_msg["content"] == "Where is +123456789?"
+
+
+class TestStepSerialization:
+    """SDG-1: each agent step is its own assistant message, followed by that
+    step's results, so no call appears to use a result not yet seen."""
+
+    @staticmethod
+    def _sequential_trace() -> dict:
+        return {
+            "question": "Open a ticket for the major alarm",
+            "tool_trace": [
+                {"name": "tmf642listAlarm", "input": {"perceivedSeverity": "major"},
+                 "output": {"content": '[{"id": "8675309"}]'}},
+                {"name": "tmf621createTroubleTicket", "input": {"description": "alarm 8675309"},
+                 "output": {"content": '{"id": "3180"}'}},
+            ],
+            "answer": "Opened ticket 3180 for alarm 8675309.",
+            "tools": [],
+        }
+
+    def test_calls_without_step_are_serialized_one_per_message(self) -> None:
+        messages = serialize_single_turn(self._sequential_trace())["messages"]
+        roles = [m["role"] for m in messages]
+        assert roles == ["system", "user", "assistant", "tool", "assistant", "tool", "assistant"]
+        assert [len(m["tool_calls"]) for m in messages if m.get("tool_calls")] == [1, 1]
+
+    def test_dependent_call_comes_after_the_result_it_uses(self) -> None:
+        messages = serialize_single_turn(self._sequential_trace())["messages"]
+        first_result = next(i for i, m in enumerate(messages) if m["role"] == "tool")
+        create_call = next(
+            i for i, m in enumerate(messages)
+            if any(tc["function"]["name"] == "tmf621createTroubleTicket" for tc in m.get("tool_calls") or [])
+        )
+        assert "8675309" in messages[first_result]["content"]
+        assert create_call > first_result
+
+    def test_mixed_parallel_then_sequential_steps(self) -> None:
+        trace = {
+            "question": "q",
+            "tool_trace": [
+                {"name": "a", "input": {}, "output": "ra", "step": 0},
+                {"name": "b", "input": {}, "output": "rb", "step": 0},
+                {"name": "c", "input": {}, "output": "rc", "step": 1},
+            ],
+            "answer": "done",
+            "tools": [],
+        }
+        messages = serialize_single_turn(trace)["messages"]
+        roles = [m["role"] for m in messages]
+        assert roles == ["system", "user", "assistant", "tool", "tool", "assistant", "tool", "assistant"]
+        assert [tc["function"]["name"] for tc in messages[2]["tool_calls"]] == ["a", "b"]
+        assert [m["content"] for m in messages if m["role"] == "tool"] == ["ra", "rb", "rc"]
+
+    def test_each_result_threads_to_its_own_call(self) -> None:
+        messages = serialize_single_turn(self._sequential_trace())["messages"]
+        for i, m in enumerate(messages):
+            if m["role"] == "tool":
+                assert messages[i - 1]["tool_calls"][0]["id"] == m["tool_call_id"]
+
+
+class TestDeterministicCallIds:
+    """SDG-4: the fallback call ID is content-derived, not random."""
+
+    def test_same_trace_serializes_identically(self) -> None:
+        trace = TestStepSerialization._sequential_trace()
+        assert serialize_single_turn(trace) == serialize_single_turn(trace)
+
+    def test_repeated_identical_calls_get_distinct_ids(self) -> None:
+        call = {"name": "tmf642listAlarm", "input": {}, "output": "x"}
+        trace = {"question": "q", "tool_trace": [dict(call), dict(call)], "answer": "a", "tools": []}
+        ids = [m["tool_call_id"] for m in serialize_single_turn(trace)["messages"] if m["role"] == "tool"]
+        assert len(set(ids)) == 2
+
+    def test_ids_unique_across_turns_with_identical_calls(self) -> None:
+        turn = {"question": "same", "tool_trace": [{"name": "f", "input": {}, "output": "x"}], "answer": "a"}
+        messages = serialize_multi_turn({"turns": [dict(turn), dict(turn)], "tools": []})["messages"]
+        ids = [m["tool_call_id"] for m in messages if m["role"] == "tool"]
+        assert len(ids) == 2 and len(set(ids)) == 2
+
+
+class TestToolResultStatus:
+    """SDG-3: timed-out tool results are detected from their payload."""
+
+    @pytest.mark.parametrize("content", [
+        "Connection to 'r1' (mcp-telecom-basic-r1.c9s.svc.cluster.local) timed out after 30s",
+        "Error executing tool show_interfaces: Timed out while waiting for response to ClientRequest. Waited 30.0 seconds.",
+        "httpx.ReadTimeout: The read operation timed out",
+        "ConnectTimeout",
+    ])
+    def test_timeouts(self, content: str) -> None:
+        assert tool_result_status(content) == "timeout"
+
+    def test_langchain_wrapped_timeout_is_unwrapped(self) -> None:
+        assert tool_result_status({"content": "Execution timed out after 120s", "status": "success"}) == "timeout"
+
+    def test_long_payload_mentioning_timeout_is_ok(self) -> None:
+        log = "\n".join(f"2026-10-22 bgp neighbor 10.0.0.{i} hold timer expired, session timed out" for i in range(40))
+        assert tool_result_status(log) == "ok"
+
+    def test_short_error_is_error_not_timeout(self) -> None:
+        assert tool_result_status("Parsing error: Unknown token 'interfaces'.") == "error"
+        assert tool_result_status("SNMP support not installed. Run: pip install mcp-telecom[snmp]") == "error"
+
+    def test_normal_payload_is_ok(self) -> None:
+        assert tool_result_status('{"result": [{"id": "8675309"}]}') == "ok"
+
+    def test_row_timeout_count_flat_and_multi_turn(self) -> None:
+        flat = {"tool_trace": [{"output": "timed out after 30s"}, {"output": "ok"}]}
+        multi = {"turns": [{"tool_trace": [{"output": "fine"}]}, {"tool_trace": [{"output": "ReadTimeout"}]}]}
+        assert row_timeout_count(flat) == 1
+        assert row_timeout_count(multi) == 1
+        assert row_timeout_count({"tool_trace": [{"output": "fine"}]}) == 0

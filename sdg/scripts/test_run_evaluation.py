@@ -76,3 +76,64 @@ def test_map_columns_resolves_real_sdg_hub_output_column_names():
     assert mapped["answer"] == "No devices configured."
     assert mapped["tool_trace"] == []
     assert mapped["tools"] == [{"name": "telecomlist_devices"}]
+
+
+def _raw_trace(tool_name: str, args: dict, tool_content: str) -> list[dict]:
+    """A trace exactly as sdg_hub's Langflow connector emits it."""
+    return [
+        {"role": "assistant", "content": "", "tool_calls": [
+            {"id": "c1", "type": "function", "function": {"name": tool_name, "arguments": json.dumps(args)}}
+        ]},
+        {"role": "tool", "tool_call_id": "c1", "content": json.dumps(
+            {"content": tool_content, "additional_kwargs": {}, "status": "success"}
+        )},
+    ]
+
+
+def _raw_row(tool_content: str) -> dict:
+    return {
+        "question": "List major alarms",
+        "extract_agent_text_text": "One major alarm: 8675309.",
+        run_evaluation.DEFAULT_TRACE_COLUMN: _raw_trace(
+            "tmf642listAlarm", {"perceivedSeverity": "major"}, tool_content
+        ),
+        "tool_list": [{"name": "tmf642listAlarm"}],
+        "tier": "single_tool",
+    }
+
+
+def test_map_columns_normalizes_raw_agent_trace():
+    """Regression test for PR #1: without normalization the serializer read
+    name/input/output off raw role/tool_calls entries and delivered null
+    tool names, empty arguments, and empty results."""
+    mapped = run_evaluation._map_columns(_raw_row('[{"id": "8675309"}]'), 0)
+    assert mapped["tool_trace"][0]["name"] == "tmf642listAlarm"
+    assert mapped["tool_trace"][0]["input"] == {"perceivedSeverity": "major"}
+
+    msgs = run_evaluation.serialize_single_turn(mapped)["messages"]
+    call = msgs[2]["tool_calls"][0]["function"]
+    assert call["name"] == "tmf642listAlarm"
+    assert json.loads(call["arguments"]) == {"perceivedSeverity": "major"}
+    assert msgs[3]["content"] == '[{"id": "8675309"}]'
+
+
+def test_timeout_rows_are_separated_from_delivery(tmp_path):
+    good = run_evaluation._map_columns(_raw_row('[{"id": "8675309"}]'), 0)
+    timed_out = run_evaluation._map_columns(
+        _raw_row("Timed out while waiting for response to ClientRequest. Waited 30.0 seconds."), 1
+    )
+
+    stats = run_evaluation._validate_and_serialize([good, timed_out], tmp_path)
+
+    assert stats["total_mapped"] == 2
+    assert stats["timeout_rows"] == 1
+    assert stats["osft_validated"] == 1
+    assert len((tmp_path / "single-turn.jsonl").read_text().splitlines()) == 1
+    assert len((tmp_path / run_evaluation.TIMEOUT_ROWS_FILE).read_text().splitlines()) == 1
+
+
+def test_keep_timeouts_delivers_them(tmp_path):
+    timed_out = run_evaluation._map_columns(_raw_row("ReadTimeout"), 0)
+    stats = run_evaluation._validate_and_serialize([timed_out], tmp_path, keep_timeouts=True)
+    assert stats["timeout_rows"] == 0
+    assert stats["osft_validated"] == 1
