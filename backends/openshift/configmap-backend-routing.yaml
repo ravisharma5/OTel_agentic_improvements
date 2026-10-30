@@ -61,7 +61,10 @@ data:
   # TMF API endpoints (Prism mock backends from Plan 03)
   TMF642_BASE_URL: "http://prism-tmf642.otel25-backends.svc.cluster.local:4010"
   TMF628_BASE_URL: "http://prism-tmf628.otel25-backends.svc.cluster.local:4010"
-  TMF621_BASE_URL: "http://prism-tmf621.otel25-backends.svc.cluster.local:4010"
+  # TMF621 uses the stateful mock (backends/tmf621-mock): Prism's static mode
+  # returned ticket 3180 for every create and never reflected updates.
+  # Fallback: "http://prism-tmf621.otel25-backends.svc.cluster.local:4010"
+  TMF621_BASE_URL: "http://tmf621-mock.otel25-backends.svc.cluster.local:4010"
 
   # CAMARA Device Location API endpoints (Prism mock backends from Plan 03)
   CAMARA_BASE_URL: "http://prism-camara.otel25-backends.svc.cluster.local:4010"

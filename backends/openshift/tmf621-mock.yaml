@@ -1,0 +1,107 @@
+# Stateful TMF621 Trouble Ticket mock -- see backends/tmf621-mock/app.py.
+#
+# Prism's static mode returns the spec's example ticket (3180) for every
+# create/get/list and never reflects updates. This mock keeps tickets in
+# memory so a created ticket can be retrieved and patched. prism-tmf621 stays
+# deployed; switch between them with TMF621_BASE_URL in backend-routing.
+#
+# State is in-process: keep replicas at 1 and strategy Recreate so two pods
+# never split the ticket set. A restart resets to the seed tickets.
+#
+#   oc apply -f backends/openshift/tmf621-mock.yaml
+#   oc start-build tmf621-mock --from-dir=backends/ -n otel25-backends --follow
+---
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: tmf621-mock
+  namespace: otel25-backends
+---
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: tmf621-mock
+  namespace: otel25-backends
+spec:
+  source:
+    type: Binary
+  strategy:
+    type: Docker
+    dockerStrategy:
+      dockerfilePath: tmf621-mock/Dockerfile
+  output:
+    to:
+      kind: ImageStreamTag
+      name: tmf621-mock:latest
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tmf621-mock
+  namespace: otel25-backends
+  labels:
+    app: tmf621-mock
+    api: tmf621
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: tmf621-mock
+  template:
+    metadata:
+      labels:
+        app: tmf621-mock
+        api: tmf621
+    spec:
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            preference:
+              matchExpressions:
+              - key: node-role.kubernetes.io/control-plane
+                operator: DoesNotExist
+      containers:
+      - name: tmf621-mock
+        image: image-registry.openshift-image-registry.svc:5000/otel25-backends/tmf621-mock:latest
+        ports:
+        - containerPort: 4010
+          protocol: TCP
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+        readinessProbe:
+          httpGet:
+            path: /troubleTicket?limit=1
+            port: 4010
+          initialDelaySeconds: 3
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /troubleTicket?limit=1
+            port: 4010
+          initialDelaySeconds: 10
+          periodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tmf621-mock
+  namespace: otel25-backends
+  labels:
+    app: tmf621-mock
+    api: tmf621
+spec:
+  selector:
+    app: tmf621-mock
+  ports:
+  - port: 4010
+    targetPort: 4010
+    protocol: TCP
+  type: ClusterIP
