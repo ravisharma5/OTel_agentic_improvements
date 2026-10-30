@@ -16,8 +16,11 @@ WORKDIR /app
 # README.md is required by hatchling build backend (referenced in pyproject.toml)
 COPY pyproject.toml uv.lock README.md ./
 
-# Install production dependencies only (frozen lockfile, no dev deps)
-RUN uv sync --no-dev --frozen
+# Install production dependencies only (frozen lockfile, no dev deps).
+# The snmp and netconf extras are required: without them every snmp_* and
+# netconf_* tool returns "... support not installed" instead of real output,
+# which an external SDG run found (pysnmp) and then had to exclude from seeds.
+RUN uv sync --no-dev --frozen --extra snmp --extra netconf
 
 # Copy source code
 COPY src/ ./src/
